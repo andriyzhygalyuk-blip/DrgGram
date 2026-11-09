@@ -50,12 +50,63 @@ jobs:
             "cmake;3.22.1"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VER}" >> $GITHUB_ENV
 
-      - name: Inject DrgGram Branding & .drg Plugin Engine
+      - name: Cache Native C++ Build (.cxx)
+        uses: actions/cache@v4
+        with:
+          path: |
+            TMessagesProj/.cxx
+          key: drggram-cxx-arm64-v1
+
+      - name: Inject Unique Package ID (org.telegram.messenger.drggram) & DrgPlugins
         run: |
           python3 - << 'EOF'
-          import os, re, glob
+          import os, re, json, copy
 
-          # 1. Перейменування Telegram -> DrgGram у всіх мовних файлах
+          # 0. Унікальний пакет org.telegram.messenger.drggram + прискорення збірки (тільки arm64-v8a)
+          for root, _, files in os.walk("."):
+              for f in files:
+                  p = os.path.join(root, f)
+                  if f == "build.gradle":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file:
+                              c = file.read()
+                          c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"')
+                          c = c.replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
+                          c = c.replace('"org.telegram.messenger.web"', '"org.telegram.messenger.drggram"')
+                          c = c.replace("'org.telegram.messenger.web'", "'org.telegram.messenger.drggram'")
+                          if "TMessagesProj_AppStandalone" in p and ".drggram" not in c:
+                              c = c.replace('applicationId "org.telegram.messenger"', 'applicationId "org.telegram.messenger.drggram"')
+                          # Залишаємо тільки 64-бітну архітектуру arm64-v8a (збірка у 2 рази швидша!)
+                          c = re.sub(r'abiFilters\s+"armeabi-v7a"\s*,\s*"arm64-v8a"\s*,\s*"x86"\s*,\s*"x86_64"', 'abiFilters "arm64-v8a"', c)
+                          c = re.sub(r'abiFilters\s+"armeabi-v7a"\s*,\s*"arm64-v8a"', 'abiFilters "arm64-v8a"', c)
+                          with open(p, "w", encoding="utf-8") as file:
+                              file.write(c)
+                      except Exception:
+                          pass
+                  elif f == "google-services.json":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file:
+                              gs = json.load(file)
+                          if "client" in gs and len(gs["client"]) > 0:
+                              for pkg in ["org.telegram.messenger.drggram", "org.telegram.messenger.drggram.web"]:
+                                  new_client = copy.deepcopy(gs["client"][0])
+                                  new_client["client_info"]["android_client_info"]["package_name"] = pkg
+                                  gs["client"].append(new_client)
+                          with open(p, "w", encoding="utf-8") as file:
+                              json.dump(gs, file, indent=2)
+                      except Exception:
+                          pass
+                  elif f == "AndroidManifest.xml":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file:
+                              m = file.read()
+                          m = m.replace("org.telegram.messenger.web", "org.telegram.messenger.drggram")
+                          with open(p, "w", encoding="utf-8") as file:
+                              file.write(m)
+                      except Exception:
+                          pass
+
+          # 1. Перейменування Telegram -> DrgGram
           for root, _, files in os.walk("."):
               for f in files:
                   if f == "strings.xml":
@@ -70,158 +121,265 @@ jobs:
                       except Exception:
                           pass
 
-          # 2. Створення нативного рушія плагінів DrgPluginManager.java
+          # 2. Створення повного ядра DrgPluginManager.java
           plugin_mgr_path = "TMessagesProj/src/main/java/org/telegram/messenger/DrgPluginManager.java"
           plugin_mgr_code = """package org.telegram.messenger;
 
+          import android.app.AlertDialog;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.Service;
           import android.content.Context;
           import android.content.SharedPreferences;
+          import android.os.Build;
           import android.os.Handler;
           import android.os.Looper;
           import android.widget.Toast;
-          import org.json.JSONObject;
+          import org.telegram.tgnet.ConnectionsManager;
+          import org.telegram.tgnet.TLRPC;
           import java.text.SimpleDateFormat;
+          import java.util.ArrayList;
+          import java.util.Collections;
           import java.util.Date;
+          import java.util.HashMap;
+          import java.util.HashSet;
           import java.util.Iterator;
+          import java.util.List;
           import java.util.Locale;
           import java.util.Map;
           import java.util.Random;
+          import java.util.Set;
 
           public class DrgPluginManager {
-              private static final String PREFS_NAME = "drg_plugins_store";
+              private static final String STATE_PREFS = "drg_system_state";
+              private static final String CHANNEL_ID = "drg_alerts_channel";
+              private static final String BG_CHANNEL_ID = "drg_bg_guard";
 
-              private static void toast(final String msg) {
-                  new Handler(Looper.getMainLooper()).post(() -> {
+              public static volatile long lastDialogId = 0;
+              public static volatile int lastAccount = 0;
+              private static boolean watcherStarted = false;
+              private static final Map<Long, Boolean> lastOnlineState = new HashMap<>();
+              private static final Map<Integer, String> recentMsgTextCache = new HashMap<>();
+              private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+              private static SharedPreferences getStatePrefs() {
+                  return ApplicationLoader.applicationContext.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE);
+              }
+
+              public static void toast(final String msg) {
+                  mainHandler.post(() -> {
                       try {
                           Toast.makeText(ApplicationLoader.applicationContext, msg, Toast.LENGTH_LONG).show();
                       } catch (Throwable ignored) {}
                   });
               }
 
-              public static CharSequence processOutgoing(CharSequence input) {
-                  if (input == null) return null;
+              private static String nowStr() {
+                  return new SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault()).format(new Date());
+              }
+
+              public static void addLog(String entry) {
                   try {
-                      String text = input.toString();
-                      String trimmed = text.trim();
+                      SharedPreferences sp = getStatePrefs();
+                      String old = sp.getString("event_log", "");
+                      String updated = "[" + nowStr() + "] " + entry + "\\n" + old;
+                      if (updated.length() > 15000) updated = updated.substring(0, 15000);
+                      sp.edit().putString("event_log", updated).apply();
+                  } catch (Throwable ignored) {}
+              }
 
-                      // Командний центр DrgGram
-                      if (trimmed.equals(".drg") || trimmed.equals(".drg help")) {
-                          toast("⚡ DrgGram Engine v1.0\\n" +
-                                "• .drg list — встановлені плагіни\\n" +
-                                "• .drg add {код} — додати .drg плагін\\n" +
-                                "• .drg clear — очистити плагіни\\n" +
-                                "• .coin, .shrug, .now — швидкі фішки");
-                          return null;
-                      }
-
-                      SharedPreferences prefs = ApplicationLoader.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-
-                      if (trimmed.equals(".drg list")) {
-                          Map<String, ?> all = prefs.getAll();
-                          if (all.isEmpty()) {
-                              toast("📦 У DrgGram поки немає встановлених .drg плагінів");
-                          } else {
-                              StringBuilder sb = new StringBuilder("📦 Активні .drg плагіни:\\n");
-                              for (String k : all.keySet()) sb.append("• ").append(k).append("\\n");
-                              toast(sb.toString().trim());
-                          }
-                          return null;
-                      }
-
-                      if (trimmed.equals(".drg clear")) {
-                          prefs.edit().clear().apply();
-                          toast("🗑 Всі .drg плагіни видалено!");
-                          return null;
-                      }
-
-                      if (trimmed.startsWith(".drg add ")) {
-                          String jsonStr = trimmed.substring(9).trim();
-                          JSONObject obj = new JSONObject(jsonStr);
-                          String name = obj.optString("name", "plugin_" + System.currentTimeMillis());
-                          prefs.edit().putString(name, jsonStr).apply();
-                          toast("✅ Плагін «" + name + "» успішно встановлено!");
-                          return null;
-                      }
-
-                      // Вбудовані швидкі команди
-                      if (trimmed.equals(".shrug")) return "¯\\\\_(ツ)_/¯";
-                      if (trimmed.equals(".coin")) return new Random().nextBoolean() ? "🪙 Випав: ОРЕЛ!" : "🪙 Випала: РЕШКА!";
-                      if (trimmed.equals(".now")) return "⌚ Зараз: " + new SimpleDateFormat("HH:mm:ss (dd.MM.yyyy)", Locale.getDefault()).format(new Date());
-
-                      // Виконання встановлених .drg плагінів (JSON-правила)
-                      String result = text;
-                      for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
-                          try {
-                              JSONObject plugin = new JSONObject(String.valueOf(entry.getValue()));
-                              if (!plugin.optBoolean("enabled", true)) continue;
-
-                              JSONObject cmds = plugin.optJSONObject("commands");
-                              if (cmds != null && cmds.has(trimmed)) {
-                                  return cmds.getString(trimmed);
-                              }
-
-                              JSONObject replace = plugin.optJSONObject("replace");
-                              if (replace != null) {
-                                  Iterator<String> keys = replace.keys();
-                                  while (keys.hasNext()) {
-                                      String k = keys.next();
-                                      result = result.replace(k, replace.getString(k));
-                                  }
-                              }
-
-                              String prefix = plugin.optString("prefix", "");
-                              String suffix = plugin.optString("suffix", "");
-                              if (!prefix.isEmpty() || !suffix.isEmpty()) {
-                                  result = prefix + result + suffix;
-                              }
-                          } catch (Throwable ignored) {}
-                      }
-                      return result.equals(text) ? input : result;
+              public static boolean isAntiDeleteEnabled() {
+                  try {
+                      return getStatePrefs().getBoolean("anti_delete", true);
                   } catch (Throwable t) {
-                      toast("⚠️ Помилка в .drg плагіні: " + t.getMessage());
-                      return input;
+                      return true;
                   }
               }
-          }
-          """
-          with open(plugin_mgr_path, "w", encoding="utf-8") as f:
-              f.write(plugin_mgr_code)
 
-          # 3. Підключення перехоплювача в ChatActivityEnterView.java
-          enter_view_path = "TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java"
-          if os.path.exists(enter_view_path):
-              with open(enter_view_path, "r", encoding="utf-8") as f:
-                  ev = f.read()
-              pattern = r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)"
-              hook = r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoing(\3); if (\3 == null) return true;"
-              ev_new, count = re.subn(pattern, hook, ev, count=1)
-              if count > 0:
-                  with open(enter_view_path, "w", encoding="utf-8") as f:
-                      f.write(ev_new)
-                  print("Successfully hooked ChatActivityEnterView!")
-          EOF
+              public static Set<String> getWatchedUsers() {
+                  try {
+                      return new HashSet<>(getStatePrefs().getStringSet("watched_users", new HashSet<>()));
+                  } catch (Throwable t) {
+                      return new HashSet<>();
+                  }
+              }
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
+              public static boolean isUserWatched(long userId) {
+                  return getWatchedUsers().contains(String.valueOf(userId));
+              }
 
-      - name: Compile DrgGram APK
-        run: |
-          gradle --parallel :TMessagesProj_AppStandalone:assembleAfatStandalone --stacktrace
-          find . -path "*/outputs/apk/*" -name "*.apk" -exec cp {} ./DrgGram.apk \;
-          ls -lh ./DrgGram.apk
+              public static void toggleWatchUser(long userId, String name) {
+                  Set<String> set = getWatchedUsers();
+                  String key = String.valueOf(userId);
+                  if (set.contains(key)) {
+                      set.remove(key);
+                      toast("🔴 Стеження за онлайном «" + name + "» ВИМКНЕНО");
+                  } else {
+                      set.add(key);
+                      toast("🟢 Стеження за онлайном «" + name + "» УВІМКНЕНО (навіть у фоні!)");
+                      startBackgroundWatcher();
+                  }
+                  getStatePrefs().edit().putStringSet("watched_users", set).apply();
+              }
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DrgGram-APK
-          path: ./DrgGram.apk
+              public static void markDeleted(int account, ArrayList<Integer> msgIds) {
+                  if (msgIds == null || msgIds.isEmpty()) return;
+                  try {
+                      SharedPreferences sp = getStatePrefs();
+                      Set<String> delSet = new HashSet<>(sp.getStringSet("deleted_ids", new HashSet<>()));
+                      StringBuilder preview = new StringBuilder();
+                      for (Integer id : msgIds) {
+                          if (id == null) continue;
+                          delSet.add(String.valueOf(id));
+                          String cached = recentMsgTextCache.get(id);
+                          if (cached != null) {
+                              preview.append(cached).append(" ");
+                          }
+                      }
+                      sp.edit().putStringSet("deleted_ids", delSet).apply();
+                      String info = preview.length() > 0 ? preview.toString().trim() : ("ID: " + msgIds.toString());
+                      addLog("🗑 Спроба видалення СМС: " + info);
+                      sendSystemNotification("🗑 Збережено видалене повідомлення!", info);
+                  } catch (Throwable ignored) {}
+              }
 
-      - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "DrgGram v1.0 (Build #${{ github.run_number }})"
-          body: "Готова збірка DrgGram з підтримкою швидких плагінів формату .drg!"
-          files: ./DrgGram.apk
+              public static boolean isMessageDeleted(int msgId) {
+                  try {
+                      return getStatePrefs().getStringSet("deleted_ids", Collections.emptySet()).contains(String.valueOf(msgId));
+                  } catch (Throwable t) {
+                      return false;
+                  }
+              }
+
+              public static void sendSystemNotification(String title, String text) {
+                  try {
+                      Context ctx = ApplicationLoader.applicationContext;
+                      NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                      if (Build.VERSION.SDK_INT >= 26) {
+                          NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "DrgGram Сповіщення", NotificationManager.IMPORTANCE_HIGH);
+                          ch.enableVibration(true);
+                          nm.createNotificationChannel(ch);
+                      }
+                      Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                              ? new Notification.Builder(ctx, CHANNEL_ID)
+                              : new Notification.Builder(ctx);
+                      b.setSmallIcon(android.R.drawable.ic_dialog_info)
+                       .setContentTitle(title)
+                       .setContentText(text)
+                       .setAutoCancel(true);
+                      nm.notify(new Random().nextInt(900000) + 10000, b.build());
+                  } catch (Throwable ignored) {}
+              }
+
+              public static void ensureForegroundService(Service service) {
+                  try {
+                      startBackgroundWatcher();
+                      if (Build.VERSION.SDK_INT >= 26) {
+                          NotificationManager nm = (NotificationManager) service.getSystemService(Context.NOTIFICATION_SERVICE);
+                          NotificationChannel ch = new NotificationChannel(BG_CHANNEL_ID, "DrgGram Фоновий Радар", NotificationManager.IMPORTANCE_LOW);
+                          nm.createNotificationChannel(ch);
+                          Notification n = new Notification.Builder(service, BG_CHANNEL_ID)
+                                  .setContentTitle("⚡ DrgGram активний у фоні")
+                                  .setContentText("Захист від видалення СМС та радар онлайну працюють")
+                                  .setSmallIcon(android.R.drawable.ic_popup_sync)
+                                  .build();
+                          service.startForeground(777888, n);
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              public static void startBackgroundWatcher() {
+                  if (watcherStarted) return;
+                  watcherStarted = true;
+                  Runnable task = new Runnable() {
+                      @Override
+                      public void run() {
+                          try {
+                              int acc = lastAccount;
+                              if (isAntiDeleteEnabled() || !getWatchedUsers().isEmpty()) {
+                                  ConnectionsManager.getInstance(acc).setAppPaused(false, false);
+                                  ConnectionsManager.getInstance(acc).resumeNetworkMaybe();
+                              }
+                              Set<String> watched = getWatchedUsers();
+                              if (!watched.isEmpty()) {
+                                  TLRPC.TL_users_getUsers req = new TLRPC.TL_users_getUsers();
+                                  for (String sId : watched) {
+                                      try {
+                                          long uid = Long.parseLong(sId);
+                                          TLRPC.InputUser iu = MessagesController.getInstance(acc).getInputUser(uid);
+                                          if (iu != null) req.id.add(iu);
+                                      } catch (Throwable ignored) {}
+                                  }
+                                  if (!req.id.isEmpty()) {
+                                      ConnectionsManager.getInstance(acc).sendRequest(req, (response, error) -> {
+                                          if (response instanceof TLRPC.Vector) {
+                                              TLRPC.Vector vec = (TLRPC.Vector) response;
+                                              for (Object o : vec.objects) {
+                                                  if (o instanceof TLRPC.User) {
+                                                      TLRPC.User u = (TLRPC.User) o;
+                                                      checkUserOnlineTransition(u.id, u.first_name, u.status);
+                                                  }
+                                              }
+                                          }
+                                      });
+                                  }
+                              }
+                          } catch (Throwable ignored) {}
+                          mainHandler.postDelayed(this, 20000);
+                      }
+                  };
+                  mainHandler.postDelayed(task, 5000);
+              }
+
+              private static void checkUserOnlineTransition(long userId, String name, TLRPC.UserStatus status) {
+                  if (!isUserWatched(userId)) return;
+                  boolean isOnline = status instanceof TLRPC.TL_userStatusOnline;
+                  Boolean prev = lastOnlineState.get(userId);
+                  lastOnlineState.put(userId, isOnline);
+                  String displayName = (name != null && !name.isEmpty()) ? name : ("ID " + userId);
+                  if (isOnline && (prev == null || !prev)) {
+                      String msg = "🟢 " + displayName + " зараз ОНЛАЙН!";
+                      addLog(msg);
+                      sendSystemNotification("🟢 Контакт у мережі!", displayName + " щойно з'явився(-лась) онлайн (" + nowStr() + ")");
+                  } else if (!isOnline && prev != null && prev) {
+                      addLog("🔴 " + displayName + " вийшов(-ла) з мережі");
+                  }
+              }
+
+              public static void onProcessUpdates(int account, ArrayList<TLRPC.Update> updates) {
+                  if (updates == null) return;
+                  startBackgroundWatcher();
+                  try {
+                      Iterator<TLRPC.Update> it = updates.iterator();
+                      while (it.hasNext()) {
+                          TLRPC.Update u = it.next();
+                          if (u instanceof TLRPC.TL_updateNewMessage) {
+                              TLRPC.Message m = ((TLRPC.TL_updateNewMessage) u).message;
+                              if (m != null && m.message != null) {
+                                  recentMsgTextCache.put(m.id, m.message);
+                              }
+                          } else if (u instanceof TLRPC.TL_updateNewChannelMessage) {
+                              TLRPC.Message m = ((TLRPC.TL_updateNewChannelMessage) u).message;
+                              if (m != null && m.message != null) {
+                                  recentMsgTextCache.put(m.id, m.message);
+                              }
+                          } else if (u instanceof TLRPC.TL_updateUserStatus) {
+                              TLRPC.TL_updateUserStatus us = (TLRPC.TL_updateUserStatus) u;
+                              TLRPC.User user = MessagesController.getInstance(account).getUser(us.user_id);
+                              String name = user != null ? user.first_name : ("ID " + us.user_id);
+                              checkUserOnlineTransition(us.user_id, name, us.status);
+                          } else if (u instanceof TLRPC.TL_updateDeleteMessages) {
+                              if (isAntiDeleteEnabled()) {
+                                  markDeleted(account, ((TLRPC.TL_updateDeleteMessages) u).messages);
+                                  it.remove();
+                              }
+                          } else if (u instanceof TLRPC.TL_updateDeleteChannelMessages) {
+                              if (isAntiDeleteEnabled()) {
+                                  markDeleted(account, ((TLRPC.TL_updateDeleteChannelMessages) u).messages);
+                                  it.remove();
+                              }
+                          }
+                      }
+                  } catch (Throwable ignored) {}
+  
