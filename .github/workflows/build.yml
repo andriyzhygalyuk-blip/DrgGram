@@ -1,0 +1,227 @@
+name: Build DrgGram APK
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk/* || true
+          df -h
+
+      - name: Checkout DrgGram
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Initialize Submodules
+        run: |
+          git submodule init
+          git submodule update --init --recursive --depth=1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK & NDK
+        run: |
+          API_VER=$(grep '^ENV ANDROID_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36")
+          BT_VER=$(grep '^ENV ANDROID_BUILD_TOOLS_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36.0.0")
+          NDK_VER=$(grep '^ENV ANDROID_NDK_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "27.2.12479018")
+          [ -z "$API_VER" ] && API_VER="36"
+          [ -z "$BT_VER" ] && BT_VER="36.0.0"
+          [ -z "$NDK_VER" ] && NDK_VER="27.2.12479018"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platform-tools" \
+            "platforms;android-${API_VER}" \
+            "build-tools;${BT_VER}" \
+            "ndk;${NDK_VER}" \
+            "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VER}" >> $GITHUB_ENV
+
+      - name: Inject DrgGram Branding & .drg Plugin Engine
+        run: |
+          python3 - << 'EOF'
+          import os, re, glob
+
+          # 1. Перейменування Telegram -> DrgGram у всіх мовних файлах
+          for root, _, files in os.walk("."):
+              for f in files:
+                  if f == "strings.xml":
+                      p = os.path.join(root, f)
+                      try:
+                          with open(p, "r", encoding="utf-8") as file:
+                              c = file.read()
+                          c = re.sub(r'(<string name="AppName">).*?(</string>)', r'\1DrgGram\2', c)
+                          c = re.sub(r'(<string name="AppNameBeta">).*?(</string>)', r'\1DrgGram\2', c)
+                          with open(p, "w", encoding="utf-8") as file:
+                              file.write(c)
+                      except Exception:
+                          pass
+
+          # 2. Створення нативного рушія плагінів DrgPluginManager.java
+          plugin_mgr_path = "TMessagesProj/src/main/java/org/telegram/messenger/DrgPluginManager.java"
+          plugin_mgr_code = """package org.telegram.messenger;
+
+          import android.content.Context;
+          import android.content.SharedPreferences;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.widget.Toast;
+          import org.json.JSONObject;
+          import java.text.SimpleDateFormat;
+          import java.util.Date;
+          import java.util.Iterator;
+          import java.util.Locale;
+          import java.util.Map;
+          import java.util.Random;
+
+          public class DrgPluginManager {
+              private static final String PREFS_NAME = "drg_plugins_store";
+
+              private static void toast(final String msg) {
+                  new Handler(Looper.getMainLooper()).post(() -> {
+                      try {
+                          Toast.makeText(ApplicationLoader.applicationContext, msg, Toast.LENGTH_LONG).show();
+                      } catch (Throwable ignored) {}
+                  });
+              }
+
+              public static CharSequence processOutgoing(CharSequence input) {
+                  if (input == null) return null;
+                  try {
+                      String text = input.toString();
+                      String trimmed = text.trim();
+
+                      // Командний центр DrgGram
+                      if (trimmed.equals(".drg") || trimmed.equals(".drg help")) {
+                          toast("⚡ DrgGram Engine v1.0\\n" +
+                                "• .drg list — встановлені плагіни\\n" +
+                                "• .drg add {код} — додати .drg плагін\\n" +
+                                "• .drg clear — очистити плагіни\\n" +
+                                "• .coin, .shrug, .now — швидкі фішки");
+                          return null;
+                      }
+
+                      SharedPreferences prefs = ApplicationLoader.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+                      if (trimmed.equals(".drg list")) {
+                          Map<String, ?> all = prefs.getAll();
+                          if (all.isEmpty()) {
+                              toast("📦 У DrgGram поки немає встановлених .drg плагінів");
+                          } else {
+                              StringBuilder sb = new StringBuilder("📦 Активні .drg плагіни:\\n");
+                              for (String k : all.keySet()) sb.append("• ").append(k).append("\\n");
+                              toast(sb.toString().trim());
+                          }
+                          return null;
+                      }
+
+                      if (trimmed.equals(".drg clear")) {
+                          prefs.edit().clear().apply();
+                          toast("🗑 Всі .drg плагіни видалено!");
+                          return null;
+                      }
+
+                      if (trimmed.startsWith(".drg add ")) {
+                          String jsonStr = trimmed.substring(9).trim();
+                          JSONObject obj = new JSONObject(jsonStr);
+                          String name = obj.optString("name", "plugin_" + System.currentTimeMillis());
+                          prefs.edit().putString(name, jsonStr).apply();
+                          toast("✅ Плагін «" + name + "» успішно встановлено!");
+                          return null;
+                      }
+
+                      // Вбудовані швидкі команди
+                      if (trimmed.equals(".shrug")) return "¯\\\\_(ツ)_/¯";
+                      if (trimmed.equals(".coin")) return new Random().nextBoolean() ? "🪙 Випав: ОРЕЛ!" : "🪙 Випала: РЕШКА!";
+                      if (trimmed.equals(".now")) return "⌚ Зараз: " + new SimpleDateFormat("HH:mm:ss (dd.MM.yyyy)", Locale.getDefault()).format(new Date());
+
+                      // Виконання встановлених .drg плагінів (JSON-правила)
+                      String result = text;
+                      for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+                          try {
+                              JSONObject plugin = new JSONObject(String.valueOf(entry.getValue()));
+                              if (!plugin.optBoolean("enabled", true)) continue;
+
+                              JSONObject cmds = plugin.optJSONObject("commands");
+                              if (cmds != null && cmds.has(trimmed)) {
+                                  return cmds.getString(trimmed);
+                              }
+
+                              JSONObject replace = plugin.optJSONObject("replace");
+                              if (replace != null) {
+                                  Iterator<String> keys = replace.keys();
+                                  while (keys.hasNext()) {
+                                      String k = keys.next();
+                                      result = result.replace(k, replace.getString(k));
+                                  }
+                              }
+
+                              String prefix = plugin.optString("prefix", "");
+                              String suffix = plugin.optString("suffix", "");
+                              if (!prefix.isEmpty() || !suffix.isEmpty()) {
+                                  result = prefix + result + suffix;
+                              }
+                          } catch (Throwable ignored) {}
+                      }
+                      return result.equals(text) ? input : result;
+                  } catch (Throwable t) {
+                      toast("⚠️ Помилка в .drg плагіні: " + t.getMessage());
+                      return input;
+                  }
+              }
+          }
+          """
+          with open(plugin_mgr_path, "w", encoding="utf-8") as f:
+              f.write(plugin_mgr_code)
+
+          # 3. Підключення перехоплювача в ChatActivityEnterView.java
+          enter_view_path = "TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java"
+          if os.path.exists(enter_view_path):
+              with open(enter_view_path, "r", encoding="utf-8") as f:
+                  ev = f.read()
+              pattern = r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)"
+              hook = r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoing(\3); if (\3 == null) return true;"
+              ev_new, count = re.subn(pattern, hook, ev, count=1)
+              if count > 0:
+                  with open(enter_view_path, "w", encoding="utf-8") as f:
+                      f.write(ev_new)
+                  print("Successfully hooked ChatActivityEnterView!")
+          EOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Compile DrgGram APK
+        run: |
+          gradle --parallel :TMessagesProj_AppStandalone:assembleAfatStandalone --stacktrace
+          find . -path "*/outputs/apk/*" -name "*.apk" -exec cp {} ./DrgGram.apk \;
+          ls -lh ./DrgGram.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DrgGram-APK
+          path: ./DrgGram.apk
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "DrgGram v1.0 (Build #${{ github.run_number }})"
+          body: "Готова збірка DrgGram з підтримкою швидких плагінів формату .drg!"
+          files: ./DrgGram.apk
