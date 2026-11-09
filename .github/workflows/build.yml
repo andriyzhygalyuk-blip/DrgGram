@@ -15,7 +15,6 @@ jobs:
       - name: Free Disk Space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk/* || true
-          df -h
 
       - name: Checkout DrgGram
         uses: actions/checkout@v4
@@ -53,77 +52,13 @@ jobs:
       - name: Cache Native C++ Build (.cxx)
         uses: actions/cache@v4
         with:
-          path: |
-            TMessagesProj/.cxx
-          key: drggram-cxx-arm64-v1
+          path: TMessagesProj/.cxx
+          key: drggram-cxx-32-64-v1
 
-      - name: Inject Unique Package ID (org.telegram.messenger.drggram) & DrgPlugins
+      - name: Create DrgPluginManager.java
         run: |
-          python3 - << 'EOF'
-          import os, re, json, copy
-
-          # 0. Унікальний пакет org.telegram.messenger.drggram + прискорення збірки (тільки arm64-v8a)
-          for root, _, files in os.walk("."):
-              for f in files:
-                  p = os.path.join(root, f)
-                  if f == "build.gradle":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file:
-                              c = file.read()
-                          c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"')
-                          c = c.replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
-                          c = c.replace('"org.telegram.messenger.web"', '"org.telegram.messenger.drggram"')
-                          c = c.replace("'org.telegram.messenger.web'", "'org.telegram.messenger.drggram'")
-                          if "TMessagesProj_AppStandalone" in p and ".drggram" not in c:
-                              c = c.replace('applicationId "org.telegram.messenger"', 'applicationId "org.telegram.messenger.drggram"')
-                          # Залишаємо тільки 64-бітну архітектуру arm64-v8a (збірка у 2 рази швидша!)
-                          c = re.sub(r'abiFilters\s+"armeabi-v7a"\s*,\s*"arm64-v8a"\s*,\s*"x86"\s*,\s*"x86_64"', 'abiFilters "arm64-v8a"', c)
-                          c = re.sub(r'abiFilters\s+"armeabi-v7a"\s*,\s*"arm64-v8a"', 'abiFilters "arm64-v8a"', c)
-                          with open(p, "w", encoding="utf-8") as file:
-                              file.write(c)
-                      except Exception:
-                          pass
-                  elif f == "google-services.json":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file:
-                              gs = json.load(file)
-                          if "client" in gs and len(gs["client"]) > 0:
-                              for pkg in ["org.telegram.messenger.drggram", "org.telegram.messenger.drggram.web"]:
-                                  new_client = copy.deepcopy(gs["client"][0])
-                                  new_client["client_info"]["android_client_info"]["package_name"] = pkg
-                                  gs["client"].append(new_client)
-                          with open(p, "w", encoding="utf-8") as file:
-                              json.dump(gs, file, indent=2)
-                      except Exception:
-                          pass
-                  elif f == "AndroidManifest.xml":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file:
-                              m = file.read()
-                          m = m.replace("org.telegram.messenger.web", "org.telegram.messenger.drggram")
-                          with open(p, "w", encoding="utf-8") as file:
-                              file.write(m)
-                      except Exception:
-                          pass
-
-          # 1. Перейменування Telegram -> DrgGram
-          for root, _, files in os.walk("."):
-              for f in files:
-                  if f == "strings.xml":
-                      p = os.path.join(root, f)
-                      try:
-                          with open(p, "r", encoding="utf-8") as file:
-                              c = file.read()
-                          c = re.sub(r'(<string name="AppName">).*?(</string>)', r'\1DrgGram\2', c)
-                          c = re.sub(r'(<string name="AppNameBeta">).*?(</string>)', r'\1DrgGram\2', c)
-                          with open(p, "w", encoding="utf-8") as file:
-                              file.write(c)
-                      except Exception:
-                          pass
-
-          # 2. Створення повного ядра DrgPluginManager.java
-          plugin_mgr_path = "TMessagesProj/src/main/java/org/telegram/messenger/DrgPluginManager.java"
-          plugin_mgr_code = """package org.telegram.messenger;
+          cat << 'EOF' > TMessagesProj/src/main/java/org/telegram/messenger/DrgPluginManager.java
+          package org.telegram.messenger;
 
           import android.app.AlertDialog;
           import android.app.Notification;
@@ -139,23 +74,12 @@ jobs:
           import org.telegram.tgnet.ConnectionsManager;
           import org.telegram.tgnet.TLRPC;
           import java.text.SimpleDateFormat;
-          import java.util.ArrayList;
-          import java.util.Collections;
-          import java.util.Date;
-          import java.util.HashMap;
-          import java.util.HashSet;
-          import java.util.Iterator;
-          import java.util.List;
-          import java.util.Locale;
-          import java.util.Map;
-          import java.util.Random;
-          import java.util.Set;
+          import java.util.*;
 
           public class DrgPluginManager {
               private static final String STATE_PREFS = "drg_system_state";
               private static final String CHANNEL_ID = "drg_alerts_channel";
               private static final String BG_CHANNEL_ID = "drg_bg_guard";
-
               public static volatile long lastDialogId = 0;
               public static volatile int lastAccount = 0;
               private static boolean watcherStarted = false;
@@ -169,9 +93,7 @@ jobs:
 
               public static void toast(final String msg) {
                   mainHandler.post(() -> {
-                      try {
-                          Toast.makeText(ApplicationLoader.applicationContext, msg, Toast.LENGTH_LONG).show();
-                      } catch (Throwable ignored) {}
+                      try { Toast.makeText(ApplicationLoader.applicationContext, msg, Toast.LENGTH_LONG).show(); } catch (Throwable ignored) {}
                   });
               }
 
@@ -183,26 +105,18 @@ jobs:
                   try {
                       SharedPreferences sp = getStatePrefs();
                       String old = sp.getString("event_log", "");
-                      String updated = "[" + nowStr() + "] " + entry + "\\n" + old;
+                      String updated = "[" + nowStr() + "] " + entry + "\n" + old;
                       if (updated.length() > 15000) updated = updated.substring(0, 15000);
                       sp.edit().putString("event_log", updated).apply();
                   } catch (Throwable ignored) {}
               }
 
               public static boolean isAntiDeleteEnabled() {
-                  try {
-                      return getStatePrefs().getBoolean("anti_delete", true);
-                  } catch (Throwable t) {
-                      return true;
-                  }
+                  try { return getStatePrefs().getBoolean("anti_delete", true); } catch (Throwable t) { return true; }
               }
 
               public static Set<String> getWatchedUsers() {
-                  try {
-                      return new HashSet<>(getStatePrefs().getStringSet("watched_users", new HashSet<>()));
-                  } catch (Throwable t) {
-                      return new HashSet<>();
-                  }
+                  try { return new HashSet<>(getStatePrefs().getStringSet("watched_users", new HashSet<>())); } catch (Throwable t) { return new HashSet<>(); }
               }
 
               public static boolean isUserWatched(long userId) {
@@ -233,9 +147,7 @@ jobs:
                           if (id == null) continue;
                           delSet.add(String.valueOf(id));
                           String cached = recentMsgTextCache.get(id);
-                          if (cached != null) {
-                              preview.append(cached).append(" ");
-                          }
+                          if (cached != null) preview.append(cached).append(" ");
                       }
                       sp.edit().putStringSet("deleted_ids", delSet).apply();
                       String info = preview.length() > 0 ? preview.toString().trim() : ("ID: " + msgIds.toString());
@@ -245,11 +157,7 @@ jobs:
               }
 
               public static boolean isMessageDeleted(int msgId) {
-                  try {
-                      return getStatePrefs().getStringSet("deleted_ids", Collections.emptySet()).contains(String.valueOf(msgId));
-                  } catch (Throwable t) {
-                      return false;
-                  }
+                  try { return getStatePrefs().getStringSet("deleted_ids", Collections.emptySet()).contains(String.valueOf(msgId)); } catch (Throwable t) { return false; }
               }
 
               public static void sendSystemNotification(String title, String text) {
@@ -261,13 +169,8 @@ jobs:
                           ch.enableVibration(true);
                           nm.createNotificationChannel(ch);
                       }
-                      Notification.Builder b = Build.VERSION.SDK_INT >= 26
-                              ? new Notification.Builder(ctx, CHANNEL_ID)
-                              : new Notification.Builder(ctx);
-                      b.setSmallIcon(android.R.drawable.ic_dialog_info)
-                       .setContentTitle(title)
-                       .setContentText(text)
-                       .setAutoCancel(true);
+                      Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(ctx, CHANNEL_ID) : new Notification.Builder(ctx);
+                      b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(text).setAutoCancel(true);
                       nm.notify(new Random().nextInt(900000) + 10000, b.build());
                   } catch (Throwable ignored) {}
               }
@@ -282,8 +185,7 @@ jobs:
                           Notification n = new Notification.Builder(service, BG_CHANNEL_ID)
                                   .setContentTitle("⚡ DrgGram активний у фоні")
                                   .setContentText("Захист від видалення СМС та радар онлайну працюють")
-                                  .setSmallIcon(android.R.drawable.ic_popup_sync)
-                                  .build();
+                                  .setSmallIcon(android.R.drawable.ic_popup_sync).build();
                           service.startForeground(777888, n);
                       }
                   } catch (Throwable ignored) {}
@@ -314,8 +216,7 @@ jobs:
                                   if (!req.id.isEmpty()) {
                                       ConnectionsManager.getInstance(acc).sendRequest(req, (response, error) -> {
                                           if (response instanceof TLRPC.Vector) {
-                                              TLRPC.Vector vec = (TLRPC.Vector) response;
-                                              for (Object o : vec.objects) {
+                                              for (Object o : ((TLRPC.Vector) response).objects) {
                                                   if (o instanceof TLRPC.User) {
                                                       TLRPC.User u = (TLRPC.User) o;
                                                       checkUserOnlineTransition(u.id, u.first_name, u.status);
@@ -339,8 +240,7 @@ jobs:
                   lastOnlineState.put(userId, isOnline);
                   String displayName = (name != null && !name.isEmpty()) ? name : ("ID " + userId);
                   if (isOnline && (prev == null || !prev)) {
-                      String msg = "🟢 " + displayName + " зараз ОНЛАЙН!";
-                      addLog(msg);
+                      addLog("🟢 " + displayName + " зараз ОНЛАЙН!");
                       sendSystemNotification("🟢 Контакт у мережі!", displayName + " щойно з'явився(-лась) онлайн (" + nowStr() + ")");
                   } else if (!isOnline && prev != null && prev) {
                       addLog("🔴 " + displayName + " вийшов(-ла) з мережі");
@@ -356,30 +256,279 @@ jobs:
                           TLRPC.Update u = it.next();
                           if (u instanceof TLRPC.TL_updateNewMessage) {
                               TLRPC.Message m = ((TLRPC.TL_updateNewMessage) u).message;
-                              if (m != null && m.message != null) {
-                                  recentMsgTextCache.put(m.id, m.message);
-                              }
+                              if (m != null && m.message != null) recentMsgTextCache.put(m.id, m.message);
                           } else if (u instanceof TLRPC.TL_updateNewChannelMessage) {
                               TLRPC.Message m = ((TLRPC.TL_updateNewChannelMessage) u).message;
-                              if (m != null && m.message != null) {
-                                  recentMsgTextCache.put(m.id, m.message);
-                              }
+                              if (m != null && m.message != null) recentMsgTextCache.put(m.id, m.message);
                           } else if (u instanceof TLRPC.TL_updateUserStatus) {
                               TLRPC.TL_updateUserStatus us = (TLRPC.TL_updateUserStatus) u;
                               TLRPC.User user = MessagesController.getInstance(account).getUser(us.user_id);
-                              String name = user != null ? user.first_name : ("ID " + us.user_id);
-                              checkUserOnlineTransition(us.user_id, name, us.status);
+                              checkUserOnlineTransition(us.user_id, user != null ? user.first_name : ("ID " + us.user_id), us.status);
                           } else if (u instanceof TLRPC.TL_updateDeleteMessages) {
-                              if (isAntiDeleteEnabled()) {
-                                  markDeleted(account, ((TLRPC.TL_updateDeleteMessages) u).messages);
-                                  it.remove();
-                              }
+                              if (isAntiDeleteEnabled()) { markDeleted(account, ((TLRPC.TL_updateDeleteMessages) u).messages); it.remove(); }
                           } else if (u instanceof TLRPC.TL_updateDeleteChannelMessages) {
-                              if (isAntiDeleteEnabled()) {
-                                  markDeleted(account, ((TLRPC.TL_updateDeleteChannelMessages) u).messages);
-                                  it.remove();
-                              }
+                              if (isAntiDeleteEnabled()) { markDeleted(account, ((TLRPC.TL_updateDeleteChannelMessages) u).messages); it.remove(); }
                           }
                       }
                   } catch (Throwable ignored) {}
-  
+              }
+
+              public static void onChatResume(long dialogId, int account) {
+                  lastDialogId = dialogId;
+                  lastAccount = account;
+                  startBackgroundWatcher();
+              }
+
+              public static void openDrgMenu(final Context context) {
+                  try {
+                      final long dialogId = lastDialogId;
+                      final int acc = lastAccount;
+                      final boolean antiDel = isAntiDeleteEnabled();
+                      final boolean watched = dialogId > 0 && isUserWatched(dialogId);
+                      String watchLabel = dialogId > 0 ? ("👁 Стежити за онлайном у фоні: " + (watched ? "[УВІМК 🟢]" : "[ВИМК 🔴]")) : "👁 Стеження за онлайном (відкрийте особистий чат)";
+                      final String[] items = new String[] {
+                          "📤 Переслати увесь чат в 1 клік (Анти-Флуд)",
+                          watchLabel,
+                          "🛡 Зберігати видалені СМС: " + (antiDel ? "[УВІМК 🟢]" : "[ВИМК 🔴]"),
+                          "📜 Журнал (Видалені СМС та Історія Онлайну)",
+                          "🗑 Очистити журнал подій"
+                      };
+                      new AlertDialog.Builder(context).setTitle("⚡ DrgPlugins — Керування").setItems(items, (dialog, which) -> {
+                          if (which == 0) {
+                              if (dialogId == 0) toast("⚠️ Спочатку зайдіть у потрібний чат!");
+                              else showForwardTargetPicker(context, acc, dialogId);
+                          } else if (which == 1) {
+                              if (dialogId <= 0) toast("⚠️ Працює в особистих переписках!");
+                              else {
+                                  TLRPC.User u = MessagesController.getInstance(acc).getUser(dialogId);
+                                  toggleWatchUser(dialogId, u != null ? u.first_name : ("ID " + dialogId));
+                              }
+                          } else if (which == 2) {
+                              boolean next = !antiDel;
+                              getStatePrefs().edit().putBoolean("anti_delete", next).apply();
+                              toast("🛡 Анти-Видалення: " + (next ? "УВІМКНЕНО 🟢" : "ВИМКНЕНО 🔴"));
+                          } else if (which == 3) {
+                              String log = getStatePrefs().getString("event_log", "");
+                              if (log.isEmpty()) log = "Поки що немає записаних подій.";
+                              new AlertDialog.Builder(context).setTitle("📜 Журнал DrgPlugins").setMessage(log).setPositiveButton("Закрити", null).show();
+                          } else if (which == 4) {
+                              getStatePrefs().edit().putString("event_log", "").apply();
+                              toast("🗑 Журнал очищено!");
+                          }
+                      }).setNegativeButton("Закрити", null).show();
+                  } catch (Throwable t) { toast("⚠️ Помилка меню: " + t.getMessage()); }
+              }
+
+              private static void showForwardTargetPicker(final Context context, final int acc, final long fromDialogId) {
+                  try {
+                      final List<Long> targetIds = new ArrayList<>();
+                      final List<String> targetNames = new ArrayList<>();
+                      long selfId = UserConfig.getInstance(acc).getClientUserId();
+                      targetIds.add(selfId);
+                      targetNames.add("⭐ Збережене (Saved Messages)");
+                      ArrayList<TLRPC.Dialog> dialogs = MessagesController.getInstance(acc).allDialogs;
+                      if (dialogs != null) {
+                          for (TLRPC.Dialog d : dialogs) {
+                              if (d == null || d.id == selfId || d.id == fromDialogId) continue;
+                              if (d.id > 0) {
+                                  TLRPC.User u = MessagesController.getInstance(acc).getUser(d.id);
+                                  if (u != null) {
+                                      String n = ((u.first_name != null ? u.first_name : "") + " " + (u.last_name != null ? u.last_name : "")).trim();
+                                      targetIds.add(d.id);
+                                      targetNames.add("👤 " + (n.isEmpty() ? ("ID " + d.id) : n));
+                                  }
+                              } else if (d.id < 0) {
+                                  TLRPC.Chat c = MessagesController.getInstance(acc).getChat(-d.id);
+                                  if (c != null && c.title != null) { targetIds.add(d.id); targetNames.add("👥 " + c.title); }
+                              }
+                              if (targetIds.size() >= 60) break;
+                          }
+                      }
+                      new AlertDialog.Builder(context).setTitle("📤 Куди переслати увесь чат?").setItems(targetNames.toArray(new String[0]), (d, index) -> {
+                          startSmartFullChatForward(acc, fromDialogId, targetIds.get(index));
+                      }).setNegativeButton("Скасувати", null).show();
+                  } catch (Throwable t) { toast("⚠️ Помилка: " + t.getMessage()); }
+              }
+              private static void startSmartFullChatForward(final int acc, final long fromDialogId, final long toDialogId) {
+                  toast("🔍 Збираю всі повідомлення чату...");
+                  fetchNextHistoryPage(acc, fromDialogId, toDialogId, 0, new ArrayList<>());
+              }
+
+              private static void fetchNextHistoryPage(final int acc, final long fromDialogId, final long toDialogId, final int offsetId, final List<Integer> collected) {
+                  TLRPC.TL_messages_getHistory req = new TLRPC.TL_messages_getHistory();
+                  req.peer = MessagesController.getInstance(acc).getInputPeer(fromDialogId);
+                  req.offset_id = offsetId;
+                  req.limit = 100;
+                  ConnectionsManager.getInstance(acc).sendRequest(req, (response, error) -> {
+                      if (error != null) {
+                          if (error.text != null && error.text.startsWith("FLOOD_WAIT_")) {
+                              int w = parseFloodWait(error.text);
+                              mainHandler.postDelayed(() -> fetchNextHistoryPage(acc, fromDialogId, toDialogId, offsetId, collected), (w + 2) * 1000L);
+                          } else toast("⚠️ Помилка: " + error.text);
+                          return;
+                      }
+                      if (response instanceof TLRPC.messages_Messages) {
+                          TLRPC.messages_Messages res = (TLRPC.messages_Messages) response;
+                          if (res.messages == null || res.messages.isEmpty()) { beginBatchForwarding(acc, fromDialogId, toDialogId, collected); return; }
+                          int minId = Integer.MAX_VALUE;
+                          for (TLRPC.Message m : res.messages) {
+                              if (m == null) continue;
+                              if (m.id < minId) minId = m.id;
+                              if (!(m instanceof TLRPC.TL_messageService) && m.id > 0) collected.add(m.id);
+                          }
+                          if (res.messages.size() < 100 || minId <= 1 || minId == offsetId) beginBatchForwarding(acc, fromDialogId, toDialogId, collected);
+                          else mainHandler.postDelayed(() -> fetchNextHistoryPage(acc, fromDialogId, toDialogId, minId, collected), 350);
+                      }
+                  });
+              }
+
+              private static void beginBatchForwarding(final int acc, final long fromDialogId, final long toDialogId, final List<Integer> allIds) {
+                  if (allIds.isEmpty()) { toast("ℹ️ Немає повідомлень для пересилання!"); return; }
+                  Collections.reverse(allIds);
+                  toast("🚀 Знайдено " + allIds.size() + " СМС! Пересилаю пачками по 100...");
+                  sendForwardBatch(acc, fromDialogId, toDialogId, allIds, 0);
+              }
+
+              private static void sendForwardBatch(final int acc, final long fromDialogId, final long toDialogId, final List<Integer> allIds, final int startIndex) {
+                  if (startIndex >= allIds.size()) {
+                      toast("✅ Увесь чат (" + allIds.size() + " СМС) переслано!");
+                      sendSystemNotification("✅ Пересилання завершено!", "Усі " + allIds.size() + " повідомлень переслано.");
+                      return;
+                  }
+                  int endIndex = Math.min(startIndex + 100, allIds.size());
+                  ArrayList<Integer> batch = new ArrayList<>(allIds.subList(startIndex, endIndex));
+                  TLRPC.TL_messages_forwardMessages req = new TLRPC.TL_messages_forwardMessages();
+                  req.from_peer = MessagesController.getInstance(acc).getInputPeer(fromDialogId);
+                  req.to_peer = MessagesController.getInstance(acc).getInputPeer(toDialogId);
+                  req.id = batch;
+                  Random rnd = new Random();
+                  for (int i = 0; i < batch.size(); i++) req.random_id.add(rnd.nextLong());
+                  ConnectionsManager.getInstance(acc).sendRequest(req, (response, error) -> {
+                      if (error != null) {
+                          if (error.text != null && error.text.startsWith("FLOOD_WAIT_")) {
+                              int w = parseFloodWait(error.text);
+                              toast("⏳ Пауза FloodWait " + w + " сек...");
+                              mainHandler.postDelayed(() -> sendForwardBatch(acc, fromDialogId, toDialogId, allIds, startIndex), (w + 2) * 1000L);
+                          } else mainHandler.postDelayed(() -> sendForwardBatch(acc, fromDialogId, toDialogId, allIds, endIndex), 2500);
+                          return;
+                      }
+                      toast("📤 Переслано " + endIndex + " із " + allIds.size() + "...");
+                      mainHandler.postDelayed(() -> sendForwardBatch(acc, fromDialogId, toDialogId, allIds, endIndex), 2500);
+                  });
+              }
+
+              private static int parseFloodWait(String err) {
+                  try { return Integer.parseInt(err.replaceAll("[^0-9]", "")); } catch (Throwable t) { return 15; }
+              }
+
+              public static CharSequence processOutgoing(CharSequence input) {
+                  if (input == null) return null;
+                  String trimmed = input.toString().trim();
+                  if (trimmed.equals(".drg")) { toast("⚡ Натисніть 3 крапки (⋮) зверху в чаті -> ⚡ DrgPlugins!"); return null; }
+                  return input;
+              }
+          }
+          EOF
+
+      - name: Patch Package ID & Hooks
+        run: |
+          python3 << 'EOF'
+          import os, re, json, copy
+
+          for root, _, files in os.walk("."):
+              for f in files:
+                  p = os.path.join(root, f)
+                  if f == "build.gradle":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file: c = file.read()
+                          c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"')
+                          c = c.replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
+                          c = c.replace('"org.telegram.messenger.web"', '"org.telegram.messenger.drggram"')
+                          c = c.replace("'org.telegram.messenger.web'", "'org.telegram.messenger.drggram'")
+                          if "TMessagesProj_AppStandalone" in p and ".drggram" not in c:
+                              c = c.replace('applicationId "org.telegram.messenger"', 'applicationId "org.telegram.messenger.drggram"')
+                          with open(p, "w", encoding="utf-8") as file: file.write(c)
+                      except Exception: pass
+                  elif f == "google-services.json":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file: gs = json.load(file)
+                          if "client" in gs and len(gs["client"]) > 0:
+                              for pkg in ["org.telegram.messenger.drggram", "org.telegram.messenger.drggram.web"]:
+                                  nc = copy.deepcopy(gs["client"][0])
+                                  nc["client_info"]["android_client_info"]["package_name"] = pkg
+                                  gs["client"].append(nc)
+                          with open(p, "w", encoding="utf-8") as file: json.dump(gs, file, indent=2)
+                      except Exception: pass
+                  elif f == "AndroidManifest.xml":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file: m = file.read()
+                          m = m.replace("org.telegram.messenger.web", "org.telegram.messenger.drggram")
+                          with open(p, "w", encoding="utf-8") as file: file.write(m)
+                      except Exception: pass
+                  elif f == "strings.xml":
+                      try:
+                          with open(p, "r", encoding="utf-8") as file: c = file.read()
+                          c = re.sub(r'(<string name="AppName">).*?(</string>)', r'\1DrgGram\2', c)
+                          c = re.sub(r'(<string name="AppNameBeta">).*?(</string>)', r'\1DrgGram\2', c)
+                          with open(p, "w", encoding="utf-8") as file: file.write(c)
+                      except Exception: pass
+
+          ab_path = "TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java"
+          if os.path.exists(ab_path):
+              with open(ab_path, "r", encoding="utf-8") as f: ab = f.read()
+              h = 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "⚡ DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(v.getContext()); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu('
+              ab, _ = re.subn(r"public\s+void\s+toggleSubMenu\s*\(", h, ab, count=1)
+              ab = re.sub(r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 injectDrgMenuIfNeeded();", ab)
+              with open(ab_path, "w", encoding="utf-8") as f: f.write(ab)
+
+          ca_path = "TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java"
+          if os.path.exists(ca_path):
+              with open(ca_path, "r", encoding="utf-8") as f: ca = f.read()
+              ca = re.sub(r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount);", ca, count=1)
+              with open(ca_path, "w", encoding="utf-8") as f: f.write(ca)
+
+          mc_path = "TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java"
+          if os.path.exists(mc_path):
+              with open(mc_path, "r", encoding="utf-8") as f: mc = f.read()
+              mc = re.sub(r"(public\s+boolean\s+processUpdateArray\s*\(\s*ArrayList<TLRPC\.Update>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onProcessUpdates(currentAccount, \2);", mc, count=1)
+              mc = re.sub(r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDeleteEnabled()) return;", mc, count=1)
+              with open(mc_path, "w", encoding="utf-8") as f: f.write(mc)
+
+          mo_path = "TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java"
+          if os.path.exists(mo_path):
+              with open(mo_path, "r", encoding="utf-8") as f: mo = f.read()
+              mo = re.sub(r"(public\s+CharSequence\s+getMessageText\s*\(\s*\)\s*\{)", r'\1 if (org.telegram.messenger.DrgPluginManager.isMessageDeleted(getId()) && messageText != null && !messageText.toString().startsWith("🗑")) { return "🗑 [ВИДАЛЕНО] " + messageText; }', mo, count=1)
+              with open(mo_path, "w", encoding="utf-8") as f: f.write(mo)
+
+          ns_path = "TMessagesProj/src/main/java/org/telegram/messenger/NotificationsService.java"
+          if os.path.exists(ns_path):
+              with open(ns_path, "r", encoding="utf-8") as f: ns = f.read()
+              ns = re.sub(r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);", ns, count=1)
+              with open(ns_path, "w", encoding="utf-8") as f: f.write(ns)
+          EOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Compile DrgGram APK
+        run: |
+          gradle --parallel :TMessagesProj_AppStandalone:assembleAfatStandalone --stacktrace
+          find . -path "*/outputs/apk/*" -name "*.apk" -exec cp {} ./DrgGram.apk \;
+          ls -lh ./DrgGram.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DrgGram-APK
+          path: ./DrgGram.apk
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.2.${{ github.run_number }}
+          name: "DrgGram v1.2 (Build #${{ github.run_number }})"
+          body: "Окремий пакет org.telegram.messenger.drggram (32-bit + 64-bit) + меню ⚡ DrgPlugins у 3 крапках + пересилання всього чату в 1 клік + фоновий радар онлайну та видалених СМС!"
+          files: ./DrgGram.apk
+# === КІНЕЦЬ ФАЙЛУ ===
