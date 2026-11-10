@@ -139,8 +139,8 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-# === КІНЕЦЬ ЧАСТИНИ 1 ===- name: Generate 6 Custom DrgGram Icons & Patch All Hooks 
-      run: |
+      - name: Generate 6 Custom DrgGram Icons & Patch All Hooks 
+              run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy
