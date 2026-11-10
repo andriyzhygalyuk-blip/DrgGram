@@ -19,14 +19,16 @@ jobs:
         run: |
           git submodule init
           git submodule update --init --recursive --depth=1
-      - name: Reuse Prebuilt C++ Libraries (Fast 2-Min Build)
+      - name: Check Prebuilt 100-Account C++ Core (v2)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p /tmp/prev /tmp/prev_libs
-          gh release download --pattern "DrgGram.apk" -D /tmp/prev --clobber || true
+          REL_TAG=$(gh release view --json tagName -q .tagName || echo "")
+          if [[ "$REL_TAG" == v2.* ]]; then
+            gh release download "$REL_TAG" --pattern "DrgGram.apk" -D /tmp/prev --clobber || true
+          fi
           if [ -f /tmp/prev/DrgGram.apk ]; then
-            echo "⚡ Знайдено готове C++ ядро! Дістаємо libtmessages.so..."
             unzip -q /tmp/prev/DrgGram.apk "lib/*/*tmessages*.so" -d /tmp/prev_libs
             mkdir -p TMessagesProj/src/main/jniLibs
             cp -r /tmp/prev_libs/lib/* TMessagesProj/src/main/jniLibs/
@@ -39,7 +41,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: Setup Android SDK
+      - name: Setup Android SDK & NDK
         run: |
           API_VER=$(grep '^ENV ANDROID_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36")
           BT_VER=$(grep '^ENV ANDROID_BUILD_TOOLS_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36.0.0")
@@ -51,6 +53,16 @@ jobs:
             $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-${API_VER}" "build-tools;${BT_VER}" "ndk;${NDK_VER}" "cmake;3.22.1"
             echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VER}" >> $GITHUB_ENV
           fi
+      - name: Restore Native C++ Cache
+        if: env.FAST_BUILD == '0'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            TMessagesProj/.cxx
+            TMessagesProj/build/intermediates/cxx
+          key: drggram-cxx-32-64-v5
+          restore-keys: |
+            drggram-cxx-32-64-
       - name: Create DrgPluginManager.java
         run: |
           cat << 'EOF' > TMessagesProj/src/main/java/org/telegram/messenger/DrgPluginManager.java
@@ -58,12 +70,18 @@ jobs:
           import android.app.*;
           import android.content.*;
           import android.os.*;
+          import android.view.*;
           import android.widget.Toast;
           import org.telegram.tgnet.*;
+          import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
+          import org.telegram.ui.ActionBar.ActionBarPopupWindow;
+          import org.telegram.ui.ActionBar.AlertDialog;
           import java.text.SimpleDateFormat;
           import java.util.*;
           public class DrgPluginManager {
-          private static final String SP="drg_state",CH="drg_ch",BG="drg_bg";
+          private static final String SP="drg_v2_state",CH="drg_ch",BG="drg_bg";
+          private static final String[] DEVS={
+          "Samsung SM-S948B|SDK 37","Samsung SM-S946B|SDK 37","Samsung SM-S941B|SDK 37","Samsung SM-F976B|SDK 37","Samsung SM-F776B|SDK 37","Google Pixel 11 Pro XL|SDK 37","Google Pixel 11 Pro|SDK 37","Google Pixel 11 Pro Fold|SDK 37","Google Pixel 11|SDK 37","Sony XQ-GE54|SDK 37","Motorola XT2651-1|SDK 37","Motorola XT2601-2|SDK 37","Asus ASUSAI2601D|SDK 37","Asus ASUSAI2601H|SDK 37","Nothing A069P|SDK 37","Samsung SM-S938B|SDK 37","Samsung SM-S936B|SDK 37","Samsung SM-S931B|SDK 37","Samsung SM-F966B|SDK 37","Samsung SM-F766B|SDK 37","Samsung SM-S937B|SDK 37","Google Pixel 10 Pro XL|SDK 37","Google Pixel 10 Pro|SDK 37","Google Pixel 10 Pro Fold|SDK 37","Google Pixel 10|SDK 37","Google Pixel 10a|SDK 37","Sony XQ-FS54|SDK 37","Motorola XT2551-6|SDK 36","Motorola XT2503-2|SDK 36","Motorola XT2505-1|SDK 36","Asus ASUSAI2501D|SDK 36","Asus ASUSAI2501H|SDK 36","Nothing A065|SDK 36","Nothing A059P|SDK 36","Nothing A059|SDK 36","Samsung SM-S928B|SDK 36","Samsung SM-S926B|SDK 36","Samsung SM-S921B|SDK 36","Samsung SM-F956B|SDK 36","Samsung SM-F741B|SDK 36","Samsung SM-S721B|SDK 36","Google Pixel 9 Pro XL|SDK 36","Google Pixel 9 Pro|SDK 36","Google Pixel 9 Pro Fold|SDK 36","Google Pixel 9|SDK 36","Google Pixel 9a|SDK 36","Sony XQ-EC54|SDK 36","Sony XQ-ES54|SDK 35","Motorola XT2401-1|SDK 35","Motorola XT2451-3|SDK 35","Motorola XT2403-2|SDK 35","Asus ASUS_AI2401_A|SDK 35","Asus ASUS_AI2401_H|SDK 35","Nothing A015|SDK 35","HTC 2QDA100|SDK 35","HMD TA-1600|SDK 35","Samsung SM-A576B|SDK 36","Samsung SM-A376B|SDK 36","Samsung SM-A566B|SDK 36","Samsung SM-A366B|SDK 36","Samsung SM-A556B|SDK 36","Samsung SM-A356B|SDK 36","Samsung SM-M556B|SDK 35","Google Pixel 8 Pro|SDK 36","Google Pixel 8|SDK 36","Google Pixel 8a|SDK 36","Motorola XT2429-1|SDK 35","Motorola XT2419-2|SDK 35","Motorola XT2435-1|SDK 35","Nothing A142|SDK 35","Nothing A001|SDK 35","HTC 2QCB100|SDK 34","HMD TA-1667|SDK 35","HMD TA-1632|SDK 35","HMD TA-1595|SDK 35","Samsung SM-S918B|SDK 35","Samsung SM-S916B|SDK 35","Samsung SM-S911B|SDK 35","Samsung SM-F946B|SDK 35","Samsung SM-F731B|SDK 35","Samsung SM-S711B|SDK 35","Samsung SM-A546B|SDK 35","Samsung SM-A346B|SDK 35","Google Pixel Fold|SDK 35","Google Pixel 7 Pro|SDK 35","Google Pixel 7|SDK 35","Google Pixel 7a|SDK 35","Sony XQ-DQ54|SDK 35","Sony XQ-DE54|SDK 35","Motorola XT2301-4|SDK 34","Motorola XT2321-1|SDK 34","Motorola XT2303-2|SDK 34","Asus ASUS_AI2302|SDK 34","Asus ASUS_AI2205_A|SDK 34","Nothing A063|SDK 34","Samsung SM-S908B|SDK 34","Samsung SM-S906B|SDK 34","Samsung SM-F936B|SDK 34","Google Pixel 6 Pro|SDK 34","Sony XQ-CT54|SDK 34"};
           public static volatile long lastDialogId=0;
           public static volatile int lastAccount=0;
           private static boolean started=false;
@@ -71,32 +89,39 @@ jobs:
           private static final Map<Integer,String> msgCache=new HashMap<>();
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(){return ApplicationLoader.applicationContext.getSharedPreferences(SP,0);}
-          public static void toast(final String m){H.post(()->{try{Toast.makeText(ApplicationLoader.applicationContext,m,Toast.LENGTH_LONG).show();}catch(Throwable ignored){}});}
+          public static String getDevProfile(int acc){String k="dev_prof_"+acc;String v=sp().getString(k,null);if(v==null){int idx=(acc>=0&&acc<DEVS.length)?acc:new Random().nextInt(DEVS.length);v=DEVS[idx];sp().edit().putString(k,v).apply();}return v;}
+          public static String getFakeDeviceModel(int acc){return getDevProfile(acc).split("\\|")[0];}
+          public static String getFakeSystemVersion(int acc){return getDevProfile(acc).split("\\|")[1];}
+          public static String getIsolatedRegId(int acc,String orig){return acc==0?orig:"";}
+          public static int getActiveAccountsCount(){int c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated())c++;}catch(Throwable ignored){}}return Math.max(1,c);}
+          private static String lang(){try{String l=LocaleController.getInstance().getCurrentLocaleInfo().getLangCode();return l!=null?l.toLowerCase(Locale.US):"en";}catch(Throwable t){return "en";}}
+          private static String tr(String uk,String ru,String en){String l=lang();if(l.startsWith("uk"))return uk;if(l.startsWith("ru"))return ru;return en;}
+          public static void toast(final String m){H.post(()->{try{Toast.makeText(ApplicationLoader.applicationContext,m,Toast.LENGTH_SHORT).show();}catch(Throwable ignored){}});}
           private static String now(){return new SimpleDateFormat("dd.MM HH:mm:ss",Locale.getDefault()).format(new Date());}
-          public static void log(String e){try{String o=sp().getString("log","");String u="["+now()+"] "+e+"\n"+o;if(u.length()>15000)u=u.substring(0,15000);sp().edit().putString("log",u).apply();}catch(Throwable ignored){}}
-          public static boolean isAntiDeleteEnabled(){try{return sp().getBoolean("anti_del",true);}catch(Throwable t){return true;}}
+          public static void log(String e){try{String o=sp().getString("log","");String u="["+now()+"] "+e+"\n"+o;if(u.length()>20000)u=u.substring(0,20000);sp().edit().putString("log",u).apply();}catch(Throwable ignored){}}
+          public static boolean isAntiDeleteEnabled(){try{return sp().getBoolean("anti_del",false);}catch(Throwable t){return false;}}
           public static Set<String> watched(){try{return new HashSet<>(sp().getStringSet("watched",new HashSet<>()));}catch(Throwable t){return new HashSet<>();}}
           public static boolean isWatched(long id){return watched().contains(String.valueOf(id));}
-          public static void toggleWatch(long id,String n){Set<String> s=watched();String k=String.valueOf(id);if(s.contains(k)){s.remove(k);toast("🔴 Стеження за «"+n+"» ВИМКНЕНО");}else{s.add(k);toast("🟢 Стеження за «"+n+"» УВІМКНЕНО!");startWatcher();}sp().edit().putStringSet("watched",s).apply();}
-          public static void markDeleted(int acc,ArrayList<Integer> ids){if(ids==null||ids.isEmpty())return;try{Set<String> d=new HashSet<>(sp().getStringSet("del_ids",new HashSet<>()));StringBuilder sb=new StringBuilder();for(Integer id:ids){if(id==null)continue;d.add(String.valueOf(id));String c=msgCache.get(id);if(c!=null)sb.append(c).append(" ");}sp().edit().putStringSet("del_ids",d).apply();String inf=sb.length()>0?sb.toString().trim():("ID: "+ids);log("🗑 Видалено СМС: "+inf);notify("🗑 Збережено видалене СМС!",inf);}catch(Throwable ignored){}}
+          public static void toggleWatch(long id,String n){Set<String> s=watched();String k=String.valueOf(id);if(s.contains(k)){s.remove(k);}else{s.add(k);startWatcher();}sp().edit().putStringSet("watched",s).apply();}
+          public static void markDeleted(int acc,ArrayList<Integer> ids){if(ids==null||ids.isEmpty())return;try{Set<String> d=new HashSet<>(sp().getStringSet("del_ids",new HashSet<>()));for(Integer id:ids){if(id==null)continue;String sid=String.valueOf(id);if(d.contains(sid))continue;String cached=msgCache.get(id);if(cached!=null){d.add(sid);log(tr("Видалено (","Удалено (","Deleted (")+cached);notify(tr("Видалене повідомлення","Удаленное сообщение","Deleted message"),cached);}}sp().edit().putStringSet("del_ids",d).apply();}catch(Throwable ignored){}}
           public static boolean isMessageDeleted(int id){try{return sp().getStringSet("del_ids",Collections.emptySet()).contains(String.valueOf(id));}catch(Throwable t){return false;}}
           public static void notify(String t,String msg){try{Context c=ApplicationLoader.applicationContext;NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26){NotificationChannel ch=new NotificationChannel(CH,"DrgGram",NotificationManager.IMPORTANCE_HIGH);nm.createNotificationChannel(ch);}Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(c,CH):new Notification.Builder(c);b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(t).setContentText(msg).setAutoCancel(true);nm.notify(new Random().nextInt(900000)+1000,b.build());}catch(Throwable ignored){}}
-          public static void ensureForegroundService(Service s){try{startWatcher();if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)s.getSystemService(Context.NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel(BG,"DrgGram Радар",NotificationManager.IMPORTANCE_LOW));s.startForeground(777888,new Notification.Builder(s,BG).setContentTitle("⚡ DrgGram активний у фоні").setContentText("Радар онлайну та Анти-Видалення працюють").setSmallIcon(android.R.drawable.ic_popup_sync).build());}}catch(Throwable ignored){}}
+          public static void ensureForegroundService(Service s){try{startWatcher();if(Build.VERSION.SDK_INT>=26&&(isAntiDeleteEnabled()||!watched().isEmpty())){NotificationManager nm=(NotificationManager)s.getSystemService(Context.NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel(BG,"DrgGram Service",NotificationManager.IMPORTANCE_LOW));s.startForeground(777888,new Notification.Builder(s,BG).setContentTitle("DrgGram").setContentText("Background service active").setSmallIcon(android.R.drawable.ic_popup_sync).build());}}catch(Throwable ignored){}}
           public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{final int a=lastAccount;if(isAntiDeleteEnabled()||!watched().isEmpty()){ConnectionsManager.getInstance(a).setAppPaused(false,false);ConnectionsManager.getInstance(a).resumeNetworkMaybe();}Set<String> w=watched();if(!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:w){try{TLRPC.InputUser iu=MessagesController.getInstance(a).getInputUser(Long.parseLong(s));if(iu!=null)r.id.add(iu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++){Object o=vec.objects.get(i);if(o instanceof TLRPC.User){TLRPC.User u=(TLRPC.User)o;checkOnline(u.id,u.first_name,u.status);}}}});}}catch(Throwable ignored){}H.postDelayed(this,20000);}},5000);}
-          private static void checkOnline(long id,String n,TLRPC.UserStatus st){if(!isWatched(id))return;boolean on=st!=null&&st.getClass().getSimpleName().toLowerCase(Locale.US).contains("online");Boolean p=onlineMap.get(id);onlineMap.put(id,on);String dn=(n!=null&&!n.isEmpty())?n:("ID "+id);if(on&&(p==null||!p)){log("🟢 "+dn+" зараз ОНЛАЙН!");notify("🟢 Контакт онлайн!",dn+" у мережі ("+now()+")");}else if(!on&&p!=null&&p)log("🔴 "+dn+" вийшов з мережі");}
-          @SuppressWarnings("unchecked") public static void onProcessUpdates(int a,ArrayList<TLRPC.Update> ups){if(ups==null)return;startWatcher();try{Iterator<TLRPC.Update> it=ups.iterator();while(it.hasNext()){TLRPC.Update u=it.next();if(u==null)continue;String cn=u.getClass().getSimpleName();if(cn.contains("updateNewMessage")||cn.contains("updateNewChannelMessage")){try{Object mo=u.getClass().getField("message").get(u);if(mo instanceof TLRPC.Message){TLRPC.Message m=(TLRPC.Message)mo;if(m.message!=null)msgCache.put(m.id,m.message);}}catch(Throwable ignored){}}else if(cn.contains("updateUserStatus")){try{long uid=u.getClass().getField("user_id").getLong(u);TLRPC.UserStatus st=(TLRPC.UserStatus)u.getClass().getField("status").get(u);TLRPC.User usr=MessagesController.getInstance(a).getUser(uid);checkOnline(uid,usr!=null?usr.first_name:("ID "+uid),st);}catch(Throwable ignored){}}else if((cn.contains("updateDeleteMessages")||cn.contains("updateDeleteChannelMessages"))&&isAntiDeleteEnabled()){try{ArrayList<Integer> ids=(ArrayList<Integer>)u.getClass().getField("messages").get(u);markDeleted(a,ids);it.remove();}catch(Throwable ignored){}}}}catch(Throwable ignored){}}
-          public static void onChatResume(long did,int a){lastDialogId=did;lastAccount=a;startWatcher();}
-          public static void openDrgMenu(final Context ctx){try{final long did=lastDialogId;final int a=lastAccount;final boolean ad=isAntiDeleteEnabled();final boolean w=did>0&&isWatched(did);String[] items={"📤 Переслати увесь чат в 1 клік (Анти-Флуд)",did>0?("👁 Стежити за онлайном: "+(w?"[УВІМК 🟢]":"[ВИМК 🔴]")):"👁 Стеження за онлайном (відкрийте чат з людиною)","🛡 Зберігати видалені СМС: "+(ad?"[УВІМК 🟢]":"[ВИМК 🔴]"),"📜 Журнал (Видалені СМС та Онлайн)","🗑 Очистити журнал"};new AlertDialog.Builder(ctx).setTitle("⚡ DrgPlugins").setItems(items,(d,i)->{if(i==0){if(did==0)toast("⚠️ Зайдіть у чат!");else pickTarget(ctx,a,did);}else if(i==1){if(did<=0)toast("⚠️ Відкрийте особистий чат!");else{TLRPC.User u=MessagesController.getInstance(a).getUser(did);toggleWatch(did,u!=null?u.first_name:("ID "+did));}}else if(i==2){sp().edit().putBoolean("anti_del",!ad).apply();toast("🛡 Анти-Видалення: "+(!ad?"УВІМК 🟢":"ВИМК 🔴"));}else if(i==3){String l=sp().getString("log","");new AlertDialog.Builder(ctx).setTitle("📜 Журнал").setMessage(l.isEmpty()?"Подій поки немає.":l).setPositiveButton("ОК",null).show();}else if(i==4){sp().edit().putString("log","").apply();toast("🗑 Очищено!");}}).setNegativeButton("Закрити",null).show();}catch(Throwable t){toast("⚠️ "+t.getMessage());}}
-          private static void pickTarget(final Context ctx,final int a,final long fromId){try{final List<Long> ids=new ArrayList<>();final List<String> nms=new ArrayList<>();long me=UserConfig.getInstance(a).getClientUserId();ids.add(me);nms.add("⭐ Збережене (Saved Messages)");for(TLRPC.Dialog d:MessagesController.getInstance(a).allDialogs){if(d==null||d.id==me||d.id==fromId)continue;if(d.id>0){TLRPC.User u=MessagesController.getInstance(a).getUser(d.id);if(u!=null){ids.add(d.id);nms.add("👤 "+(u.first_name!=null?u.first_name:"ID "+d.id));}}else if(d.id<0){TLRPC.Chat c=MessagesController.getInstance(a).getChat(-d.id);if(c!=null&&c.title!=null){ids.add(d.id);nms.add("👥 "+c.title);}}if(ids.size()>=60)break;}new AlertDialog.Builder(ctx).setTitle("📤 Куди переслати увесь чат?").setItems(nms.toArray(new String[0]),(d,ix)->{toast("🔍 Збираю повідомлення...");fetchHist(a,fromId,ids.get(ix),0,new ArrayList<>());}).setNegativeButton("Скасувати",null).show();}catch(Throwable t){toast("⚠️ "+t.getMessage());}}
-          private static void fetchHist(final int a,final long f,final long t,final int off,final List<Integer> col){TLRPC.TL_messages_getHistory r=new TLRPC.TL_messages_getHistory();r.peer=MessagesController.getInstance(a).getInputPeer(f);r.offset_id=off;r.limit=100;ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(err!=null){if(err.text!=null&&err.text.startsWith("FLOOD_WAIT_")){final int w=parseWait(err.text);H.postDelayed(()->fetchHist(a,f,t,off,col),(w+2)*1000L);}else toast("⚠️ "+err.text);return;}if(res instanceof TLRPC.messages_Messages){TLRPC.messages_Messages ms=(TLRPC.messages_Messages)res;if(ms.messages==null||ms.messages.isEmpty()){startFwd(a,f,t,col);return;}int min=Integer.MAX_VALUE;for(TLRPC.Message m:ms.messages){if(m==null)continue;if(m.id<min)min=m.id;if(!(m instanceof TLRPC.TL_messageService)&&m.id>0)col.add(m.id);}final int nx=min;if(ms.messages.size()<100||nx<=1||nx==off)startFwd(a,f,t,col);else H.postDelayed(()->fetchHist(a,f,t,nx,col),350);}});}
-          private static void startFwd(final int a,final long f,final long t,final List<Integer> ids){if(ids.isEmpty()){toast("ℹ️ Чат порожній!");return;}Collections.reverse(ids);toast("🚀 Пересилаю "+ids.size()+" СМС пачками по 100...");fwdBatch(a,f,t,ids,0);}
-          private static void fwdBatch(final int a,final long f,final long t,final List<Integer> ids,final int st){if(st>=ids.size()){toast("✅ Усі "+ids.size()+" СМС переслано!");notify("✅ Пересилання завершено!","Переслано "+ids.size()+" повідомлень.");return;}final int end=Math.min(st+100,ids.size());TLRPC.TL_messages_forwardMessages r=new TLRPC.TL_messages_forwardMessages();r.from_peer=MessagesController.getInstance(a).getInputPeer(f);r.to_peer=MessagesController.getInstance(a).getInputPeer(t);r.id=new ArrayList<>(ids.subList(st,end));Random rnd=new Random();for(int i=0;i<r.id.size();i++)r.random_id.add(rnd.nextLong());ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(err!=null&&err.text!=null&&err.text.startsWith("FLOOD_WAIT_")){final int w=parseWait(err.text);toast("⏳ FloodWait "+w+"с...");H.postDelayed(()->fwdBatch(a,f,t,ids,st),(w+2)*1000L);return;}toast("📤 Переслано "+end+" / "+ids.size());H.postDelayed(()->fwdBatch(a,f,t,ids,end),2500);});}
+          private static void checkOnline(long id,String n,TLRPC.UserStatus st){if(!isWatched(id))return;boolean on=st!=null&&st.getClass().getSimpleName().toLowerCase(Locale.US).contains("online");Boolean p=onlineMap.get(id);onlineMap.put(id,on);String dn=(n!=null&&!n.isEmpty())?n:("ID "+id);if(on&&(p==null||!p)){log(dn+": ONLINE");notify(dn,"Online ("+now()+")");}else if(!on&&p!=null&&p)log(dn+": OFFLINE");}
+          @SuppressWarnings("unchecked") public static void onProcessUpdates(int a,ArrayList<TLRPC.Update> ups){if(ups==null)return;try{Iterator<TLRPC.Update> it=ups.iterator();while(it.hasNext()){TLRPC.Update u=it.next();if(u==null)continue;String cn=u.getClass().getSimpleName();if(cn.contains("updateNewMessage")&&!cn.contains("Channel")){try{Object mo=u.getClass().getField("message").get(u);if(mo instanceof TLRPC.Message){TLRPC.Message m=(TLRPC.Message)mo;if(m.message!=null&&m.peer_id!=null&&m.peer_id.user_id>0&&m.peer_id.chat_id==0&&m.peer_id.channel_id==0){TLRPC.User usr=MessagesController.getInstance(a).getUser(m.peer_id.user_id);String sn=(usr!=null&&usr.first_name!=null)?usr.first_name:("ID "+m.peer_id.user_id);msgCache.put(m.id,sn+"): "+m.message);}}}catch(Throwable ignored){}}else if(cn.contains("updateUserStatus")){try{long uid=u.getClass().getField("user_id").getLong(u);TLRPC.UserStatus st=(TLRPC.UserStatus)u.getClass().getField("status").get(u);TLRPC.User usr=MessagesController.getInstance(a).getUser(uid);checkOnline(uid,usr!=null?usr.first_name:("ID "+uid),st);}catch(Throwable ignored){}}else if(cn.equals("TL_updateDeleteMessages")&&isAntiDeleteEnabled()){try{ArrayList<Integer> ids=(ArrayList<Integer>)u.getClass().getField("messages").get(u);markDeleted(a,ids);it.remove();}catch(Throwable ignored){}}}}catch(Throwable ignored){}}
+          public static void onChatResume(long did,int a){lastDialogId=did;lastAccount=a;}
+          public static void openDrgMenu(final View anchor){try{final Context ctx=anchor.getContext();final long did=lastDialogId;final int a=lastAccount;final ActionBarPopupWindow.ActionBarPopupWindowLayout layout=new ActionBarPopupWindow.ActionBarPopupWindowLayout(ctx);final ActionBarPopupWindow popup=new ActionBarPopupWindow(layout,-2,-2);popup.setOutsideTouchable(true);popup.setClippingEnabled(true);ActionBarMenuSubItem i1=new ActionBarMenuSubItem(ctx,true,false);i1.setTextAndIcon(tr("Переслати чат","Переслать чат","Forward chat"),R.drawable.msg_forward);i1.setOnClickListener(v->{popup.dismiss();if(did!=0)pickTarget(ctx,a,did);});layout.addView(i1);final ActionBarMenuSubItem i2=new ActionBarMenuSubItem(ctx,false,false);boolean w=did>0&&isWatched(did);i2.setTextAndIcon(tr("Онлайн радар: ","Онлайн радар: ","Online radar: ")+(w?"ON":"OFF"),R.drawable.msg_contacts);i2.setOnClickListener(v->{if(did>0){TLRPC.User u=MessagesController.getInstance(a).getUser(did);toggleWatch(did,u!=null?u.first_name:("ID "+did));boolean nw=isWatched(did);i2.setText(tr("Онлайн радар: ","Онлайн радар: ","Online radar: ")+(nw?"ON":"OFF"));}});layout.addView(i2);final ActionBarMenuSubItem i3=new ActionBarMenuSubItem(ctx,false,false);boolean ad=isAntiDeleteEnabled();i3.setTextAndIcon(tr("Анти-видалення: ","Анти-удаление: ","Anti-delete: ")+(ad?"ON":"OFF"),R.drawable.msg_delete);i3.setOnClickListener(v->{boolean next=!isAntiDeleteEnabled();sp().edit().putBoolean("anti_del",next).apply();i3.setText(tr("Анти-видалення: ","Анти-удаление: ","Anti-delete: ")+(next?"ON":"OFF"));});layout.addView(i3);ActionBarMenuSubItem i4=new ActionBarMenuSubItem(ctx,false,true);i4.setTextAndIcon(tr("Журнал","Журнал","Log"),R.drawable.msg_recent);i4.setOnClickListener(v->{popup.dismiss();String l=sp().getString("log","");new AlertDialog.Builder(ctx).setTitle(tr("Журнал","Журнал","Log")).setMessage(l.isEmpty()?tr("Порожньо","Пусто","Empty"):l).setPositiveButton("OK",null).setNeutralButton(tr("Очистити","Очистить","Clear"),(d,w2)->sp().edit().putString("log","").apply()).show();});layout.addView(i4);popup.showAtLocation(anchor.getRootView(),Gravity.TOP|Gravity.RIGHT,AndroidUtilities.dp(8),AndroidUtilities.dp(56));}catch(Throwable t){toast(t.getMessage());}}
+          private static void pickTarget(final Context ctx,final int a,final long fromId){try{final List<Long> ids=new ArrayList<>();final List<String> nms=new ArrayList<>();long me=UserConfig.getInstance(a).getClientUserId();ids.add(me);nms.add(tr("Збережене","Избранное","Saved Messages"));for(TLRPC.Dialog d:MessagesController.getInstance(a).allDialogs){if(d==null||d.id==me||d.id==fromId)continue;if(d.id>0){TLRPC.User u=MessagesController.getInstance(a).getUser(d.id);if(u!=null){ids.add(d.id);nms.add(u.first_name!=null?u.first_name:("ID "+d.id));}}else if(d.id<0){TLRPC.Chat c=MessagesController.getInstance(a).getChat(-d.id);if(c!=null&&c.title!=null){ids.add(d.id);nms.add(c.title);}}if(ids.size()>=60)break;}new AlertDialog.Builder(ctx).setTitle(tr("Переслати чат","Переслать чат","Forward chat")).setItems(nms.toArray(new String[0]),(d,ix)->fetchHist(a,fromId,ids.get(ix),0,new ArrayList<>())).setNegativeButton(tr("Скасувати","Отмена","Cancel"),null).show();}catch(Throwable ignored){}}
+          private static void fetchHist(final int a,final long f,final long t,final int off,final List<Integer> col){TLRPC.TL_messages_getHistory r=new TLRPC.TL_messages_getHistory();r.peer=MessagesController.getInstance(a).getInputPeer(f);r.offset_id=off;r.limit=100;ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(err!=null){if(err.text!=null&&err.text.startsWith("FLOOD_WAIT_")){final int w=parseWait(err.text);H.postDelayed(()->fetchHist(a,f,t,off,col),(w+2)*1000L);}return;}if(res instanceof TLRPC.messages_Messages){TLRPC.messages_Messages ms=(TLRPC.messages_Messages)res;if(ms.messages==null||ms.messages.isEmpty()){startFwd(a,f,t,col);return;}int min=Integer.MAX_VALUE;for(TLRPC.Message m:ms.messages){if(m==null)continue;if(m.id<min)min=m.id;if(!(m instanceof TLRPC.TL_messageService)&&m.id>0)col.add(m.id);}final int nx=min;if(ms.messages.size()<100||nx<=1||nx==off)startFwd(a,f,t,col);else H.postDelayed(()->fetchHist(a,f,t,nx,col),350);}});}
+          private static void startFwd(final int a,final long f,final long t,final List<Integer> ids){if(ids.isEmpty())return;Collections.reverse(ids);fwdBatch(a,f,t,ids,0);}
+          private static void fwdBatch(final int a,final long f,final long t,final List<Integer> ids,final int st){if(st>=ids.size()){toast(tr("Пересилання завершено","Пересылка завершена","Forwarding complete"));return;}final int end=Math.min(st+100,ids.size());TLRPC.TL_messages_forwardMessages r=new TLRPC.TL_messages_forwardMessages();r.from_peer=MessagesController.getInstance(a).getInputPeer(f);r.to_peer=MessagesController.getInstance(a).getInputPeer(t);r.id=new ArrayList<>(ids.subList(st,end));Random rnd=new Random();for(int i=0;i<r.id.size();i++)r.random_id.add(rnd.nextLong());ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(err!=null&&err.text!=null&&err.text.startsWith("FLOOD_WAIT_")){final int w=parseWait(err.text);H.postDelayed(()->fwdBatch(a,f,t,ids,st),(w+2)*1000L);return;}H.postDelayed(()->fwdBatch(a,f,t,ids,end),2500);});}
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
-          public static CharSequence processOutgoing(CharSequence in){return in;}
           }
           EOF
-      - name: Patch Package ID, Login Fix & Hooks
+      - name: Patch 100 Accounts, Fake Devices, UI & Hooks
         run: |
+          find TMessagesProj/jni -exec touch -d "2025-01-01 00:00:00" {} + || true
           python3 << 'EOF'
           import os, re, json, copy
           for root, _, files in os.walk("."):
@@ -132,6 +157,39 @@ jobs:
                           c = re.sub(r'(<string name="AppNameBeta">).*?(</string>)', r'\1DrgGram\2', c)
                           with open(p, "w", encoding="utf-8") as file: file.write(c)
                       except Exception: pass
+          # 100 Accounts in C++ Defines.h & ConnectionsManager.cpp
+          def_p = "TMessagesProj/jni/tgnet/Defines.h"
+          if os.path.exists(def_p):
+              with open(def_p, "r", encoding="utf-8") as f: d = f.read()
+              d = re.sub(r"#define\s+MAX_ACCOUNT_COUNT\s+\d+", "#define MAX_ACCOUNT_COUNT 100", d)
+              with open(def_p, "w", encoding="utf-8") as f: f.write(d)
+          cm_cpp = "TMessagesProj/jni/tgnet/ConnectionsManager.cpp"
+          if os.path.exists(cm_cpp):
+              with open(cm_cpp, "r", encoding="utf-8") as f: cc = f.read()
+              cases = "\n".join([f"case {i}: {{ static ConnectionsManager instance{i}({i}); return instance{i}; }}" for i in range(99)])
+              new_get = f"ConnectionsManager &ConnectionsManager::getInstance(int32_t instanceNum) {{\n switch (instanceNum) {{\n{cases}\n default: {{ static ConnectionsManager instance99(99); return instance99; }}\n }}\n}}"
+              cc = re.sub(r"ConnectionsManager\s*&\s*ConnectionsManager::getInstance\s*\(\s*int32_t\s+instanceNum\s*\)\s*\{.*?\n\}", new_get, cc, flags=re.S)
+              with open(cm_cpp, "w", encoding="utf-8") as f: f.write(cc)
+          # 100 Accounts in UserConfig.java
+          uc_p = "TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java"
+          if os.path.exists(uc_p):
+              with open(uc_p, "r", encoding="utf-8") as f: uc = f.read()
+              uc = re.sub(r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;", uc)
+              uc = re.sub(r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;", uc)
+              uc = re.sub(r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;", uc)
+              with open(uc_p, "w", encoding="utf-8") as f: f.write(uc)
+          # Fake Device & Isolated Push per Account in ConnectionsManager.java
+          cm_j = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
+          if os.path.exists(cm_j):
+              with open(cm_j, "r", encoding="utf-8") as f: cj = f.read()
+              cj = re.sub(r"(public\s+void\s+init\s*\([^)]*String\s+deviceModel\s*,\s*String\s+systemVersion[^)]*\)\s*\{)", r"\1 deviceModel = org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount); systemVersion = org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount); regId = org.telegram.messenger.DrgPluginManager.getIsolatedRegId(currentAccount, regId);", cj, count=1)
+              with open(cm_j, "w", encoding="utf-8") as f: f.write(cj)
+          # Add Account (X/100) counter in LocaleController.java
+          lc_p = "TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java"
+          if os.path.exists(lc_p):
+              with open(lc_p, "r", encoding="utf-8") as f: lc = f.read()
+              lc = re.sub(r"(public\s+static\s+String\s+getString\s*\(\s*int\s+res\s*\)\s*\{)", r"\1 if (res == R.string.AddAccount) return getStringInternal(\"AddAccount\", res) + \" (\" + org.telegram.messenger.DrgPluginManager.getActiveAccountsCount() + \"/100)\";", lc, count=1)
+              with open(lc_p, "w", encoding="utf-8") as f: f.write(lc)
           bv_p = "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
           if os.path.exists(bv_p):
               with open(bv_p, "r", encoding="utf-8") as f: bv = f.read()
@@ -144,7 +202,7 @@ jobs:
           ab_p = "TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java"
           if os.path.exists(ab_p):
               with open(ab_p, "r", encoding="utf-8") as f: ab = f.read()
-              h = 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "⚡ DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(v.getContext()); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu('
+              h = 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(this); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu('
               ab, _ = re.subn(r"public\s+void\s+toggleSubMenu\s*\(", h, ab, count=1)
               ab = re.sub(r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 injectDrgMenuIfNeeded();", ab)
               with open(ab_p, "w", encoding="utf-8") as f: f.write(ab)
@@ -152,7 +210,7 @@ jobs:
               ("TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount);"),
               ("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+boolean\s+processUpdateArray\s*\(\s*ArrayList<TLRPC\.Update>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onProcessUpdates(currentAccount, \2);"),
               ("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDeleteEnabled()) return;"),
-              ("TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java", r"(public\s+CharSequence\s+getMessageText\s*\(\s*\)\s*\{)", r'\1 if (org.telegram.messenger.DrgPluginManager.isMessageDeleted(getId()) && messageText != null && !messageText.toString().startsWith("🗑")) { return "🗑 [ВИДАЛЕНО] " + messageText; }'),
+              ("TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java", r"(public\s+CharSequence\s+getMessageText\s*\(\s*\)\s*\{)", r'\1 if (org.telegram.messenger.DrgPluginManager.isMessageDeleted(getId()) && messageText != null && !messageText.toString().startsWith("[")) { return "[DELETED] " + messageText; }'),
               ("TMessagesProj/src/main/java/org/telegram/messenger/NotificationsService.java", r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);")
           ]:
               if os.path.exists(p):
@@ -167,7 +225,14 @@ jobs:
         run: |
           gradle --parallel :TMessagesProj_AppStandalone:assembleAfatStandalone
           find . -path "*/outputs/apk/*" -name "*.apk" -exec cp {} ./DrgGram.apk \;
-          unzip -l ./DrgGram.apk | grep libtmessages || true
+      - name: Save Native C++ Cache
+        if: always() && env.FAST_BUILD == '0'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            TMessagesProj/.cxx
+            TMessagesProj/build/intermediates/cxx
+          key: drggram-cxx-32-64-v5
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -176,8 +241,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.${{ github.run_number }}
-          name: "DrgGram v1.3 (Build #${{ github.run_number }})"
-          body: "Виправлено вхід за номером телефону + швидка збірка за 2 хвилини!"
+          tag_name: v2.0.${{ github.run_number }}
+          name: "DrgGram v2.0 (Build #${{ github.run_number }})"
+          body: "Підтримка 100 акаунтів + 100 індивідуальних пристроїв + рідне меню DrgPlugins!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
