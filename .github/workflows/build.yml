@@ -86,9 +86,7 @@ jobs:
                   if f == "build.gradle":
                       try:
                           with open(p, "r", encoding="utf-8") as file: c = file.read()
-                          c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'").replace('"org.telegram.messenger.web"', '"org.telegram.messenger.drggram"').replace("'org.telegram.messenger.web'", "'org.telegram.messenger.drggram'")
-                          if "TMessagesProj_AppStandalone" in p and ".drggram" not in c:
-                              c = c.replace('applicationId "org.telegram.messenger"', 'applicationId "org.telegram.messenger.drggram"')
+                          c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
                           with open(p, "w", encoding="utf-8") as file: file.write(c)
                       except Exception: pass
                   elif f == "google-services.json":
@@ -104,7 +102,7 @@ jobs:
                   elif f == "AndroidManifest.xml":
                       try:
                           with open(p, "r", encoding="utf-8") as file: m = file.read()
-                          with open(p, "w", encoding="utf-8") as file: file.write(m.replace("org.telegram.messenger.web", "org.telegram.messenger.drggram"))
+                          with open(p, "w", encoding="utf-8") as file: file.write(m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram."))
                       except Exception: pass
                   elif f == "strings.xml":
                       try:
@@ -156,7 +154,7 @@ jobs:
           path: |
             TMessagesProj/.cxx
             TMessagesProj/build/intermediates/cxx
-          key: drggram-cxx-32-64-v3
+          key: drggram-cxx-32-64-v4
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
