@@ -140,7 +140,7 @@ jobs:
           }
           EOF
       - name: Generate 6 Custom DrgGram Icons & Patch All Hooks 
-              run: |
+        run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy
