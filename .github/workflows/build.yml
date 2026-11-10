@@ -61,6 +61,7 @@ jobs:
           import android.content.*;
           import android.graphics.Color;
           import android.graphics.drawable.GradientDrawable;
+          import android.media.AudioRecord;
           import android.os.*;
           import android.util.TypedValue;
           import android.view.*;
@@ -69,6 +70,8 @@ jobs:
           import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
           import org.telegram.ui.ActionBar.ActionBarPopupWindow;
           import org.telegram.ui.ActionBar.AlertDialog;
+          import java.nio.ByteBuffer;
+          import java.nio.ByteOrder;
           import java.text.SimpleDateFormat;
           import java.util.*;
           public class DrgPluginManager {
@@ -79,6 +82,9 @@ jobs:
           private static volatile long allowReadUntil=0;
           private static volatile TLObject cachedOfflineReq=null;
           private static boolean started=false;
+          private static final float[] vRing=new float[8192];
+          private static int vWrite=0;
+          private static double vPhase=0.0,vRobPhase=0.0,vLp1=0.0,vLp2=0.0;
           private static final Map<String,Boolean> onlineMap=new HashMap<>();
           private static final Map<String,Long> onlineSince=new HashMap<>();
           private static final Map<Integer,String> msgCache=new HashMap<>();
@@ -90,6 +96,7 @@ jobs:
           public static String getFakeSystemVersion(int a){return "SDK "+getDevProfile(a).split(":")[1];}
           public static String getIsolatedRegId(int a,String o){return a==0?o:"";}
           public static int getActiveAccountsCount(){int c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated())c++;}catch(Throwable ignored){}}return Math.max(1,c);}
+          public static String formatAddAccountLabel(String base){if(base!=null&&base.contains("/100)"))return base;String b=(base!=null&&!base.isEmpty())?base:tr("Додати акаунт","Добавить аккаунт","Add Account");return b+" ("+getActiveAccountsCount()+"/100)";}
           private static String lang(){try{String l=LocaleController.getInstance().getCurrentLocaleInfo().getLangCode();return l!=null?l.toLowerCase(Locale.US):"en";}catch(Throwable t){return "en";}}
           public static String tr(String uk,String ru,String en){String l=lang();if(l.startsWith("uk"))return uk;if(l.startsWith("ru"))return ru;return en;}
           public static void toast(final String m){H.post(()->{try{Toast.makeText(ApplicationLoader.applicationContext,m,Toast.LENGTH_SHORT).show();}catch(Throwable ignored){}});}
@@ -102,6 +109,11 @@ jobs:
           public static boolean isMutedPm(int a,long did){return did>0&&sp(a).getBoolean("mute_pm_"+did,false);}
           public static boolean isGhostOpt(int a,int idx){return sp(a).getBoolean("ghost_"+idx,false);}
           public static int getGhostCount(int a){int c=0;for(int i=0;i<5;i++)if(isGhostOpt(a,i))c++;return c;}
+          public static int readAudio(AudioRecord rec,ByteBuffer buf,int size){int len=rec.read(buf,size);if(len>0)processByteBufferPcm(buf,len);return len;}
+          public static int readAudio(AudioRecord rec,short[] s,int off,int size){int len=rec.read(s,off,size);if(len>0)processShortsPcm(s,off,len);return len;}
+          public static int readAudio(AudioRecord rec,byte[] b,int off,int size){int len=rec.read(b,off,size);if(len>1){int cnt=len/2;short[] s=new short[cnt];for(int i=0;i<cnt;i++)s[i]=(short)((b[off+i*2]&0xFF)|(b[off+i*2+1]<<8));processShortsPcm(s,0,cnt);for(int i=0;i<cnt;i++){b[off+i*2]=(byte)(s[i]&0xFF);b[off+i*2+1]=(byte)((s[i]>>8)&0xFF);}}return len;}
+          public static void processByteBufferPcm(ByteBuffer buf,int len){int mode=getVoiceMode(lastAccount);if(mode<=0||buf==null||len<2)return;try{buf.order(ByteOrder.LITTLE_ENDIAN);int cnt=len/2;short[] s=new short[cnt];for(int i=0;i<cnt;i++)s[i]=buf.getShort(i*2);processShortsPcm(s,0,cnt);for(int i=0;i<cnt;i++)buf.putShort(i*2,s[i]);}catch(Throwable ignored){}}
+          public static void processShortsPcm(short[] pcm,int off,int count){int mode=getVoiceMode(lastAccount);if(mode<=0||pcm==null||count<=0)return;double pitch=1.0;if(mode==1)pitch=1.28;else if(mode==2)pitch=1.14;else if(mode==3)pitch=0.88;else if(mode==4)pitch=0.75;else if(mode==5)pitch=0.95;else if(mode==6)pitch=1.45;final int W=1024;for(int i=0;i<count;i++){float x=pcm[off+i]/32768.0f;vRing[vWrite&8191]=x;double d1=vPhase*W;double d2=((vPhase+0.5)%1.0)*W;double r1=vWrite-d1;if(r1<0)r1+=8192;int i1=(int)r1;float f1=(float)(r1-i1);float s1=vRing[i1&8191]*(1.0f-f1)+vRing[(i1+1)&8191]*f1;double r2=vWrite-d2;if(r2<0)r2+=8192;int i2=(int)r2;float f2=(float)(r2-i2);float s2=vRing[i2&8191]*(1.0f-f2)+vRing[(i2+1)&8191]*f2;double w1=0.5*(1.0-Math.cos(2.0*Math.PI*vPhase));double y=s1*w1+s2*(1.0-w1);vPhase+=(1.0-pitch)/W;vPhase-=Math.floor(vPhase);vWrite=(vWrite+1)&8191;if(mode==5){vRobPhase+=2.0*Math.PI*60.0/48000.0;if(vRobPhase>2.0*Math.PI)vRobPhase-=2.0*Math.PI;y=y*(0.65+0.55*Math.sin(vRobPhase))+0.25*vLp1;vLp1=y;}else if(mode==1||mode==2){vLp1=vLp1+0.55*(y-vLp1);vLp2=vLp2+0.65*(vLp1-vLp2);y=vLp2*1.12;}else if(mode==3||mode==4){vLp1=vLp1+0.25*(y-vLp1);y=(y*0.8+vLp1*0.45)*1.15;}else if(mode==6){vLp1=vLp1+0.75*(y-vLp1);y=vLp1*1.1;}int out=(int)Math.round(y*32767.0);if(out>32767)out=32767;else if(out<-32768)out=-32768;pcm[off+i]=(short)out;}}
           public static boolean shouldBlockRequest(final int a,TLObject req){if(req==null)return false;String n=req.getClass().getSimpleName().toLowerCase(Locale.US);if(isGhostOpt(a,0)&&System.currentTimeMillis()>allowReadUntil&&(n.contains("readhistory")||n.contains("readdiscussion")||n.contains("readencrypted")||n.contains("readmessagecontents")))return true;if(isGhostOpt(a,1)&&n.contains("readstories"))return true;if(isGhostOpt(a,3)&&n.contains("settyping"))return true;if(n.contains("updatestatus")){try{req.getClass().getField("offline").setBoolean(req,true);cachedOfflineReq=req;}catch(Throwable ignored){}if(isGhostOpt(a,2)||isGhostOpt(a,4))return false;}if(n.contains("sendmessage")||n.contains("sendmedia")){if(sp(a).getBoolean("ghost_sched",false)){try{java.lang.reflect.Field f=req.getClass().getField("schedule_date");if(f.getInt(req)==0)f.setInt(req,ConnectionsManager.getInstance(a).getCurrentTime()+12);}catch(Throwable ignored){}}if(sp(a).getBoolean("ghost_read_inter",true))allowReadUntil=System.currentTimeMillis()+3000L;if((isGhostOpt(a,2)||isGhostOpt(a,4))&&cachedOfflineReq!=null){H.postDelayed(()->{try{ConnectionsManager.getInstance(a).sendRequest(cachedOfflineReq,(res,err)->{});}catch(Throwable ignored){}},500);}}return false;}
           public static CharSequence processOutgoingWithTiming(int a,CharSequence in){if(in==null)return null;if(!isVoiceTiming(a))return in;try{MessageObject mo=MediaController.getInstance().getPlayingMessageObject();if(mo!=null&&mo.audioProgressSec>0){int sec=mo.audioProgressSec;String ts=String.format(Locale.US,"%02d:%02d ",sec/60,sec%60);if(!in.toString().startsWith(ts.trim()))return ts+in;}}catch(Throwable ignored){}return in;}
           public static String getProfileBadge(int a,long uid){if(uid<=0)return "";try{TLRPC.User u=MessagesController.getInstance(a).getUser(uid);int dc=0;if(u!=null&&u.photo!=null)dc=u.photo.dc_id;String dcStr=dc>0?("DC"+dc):"DC2";String yr="~2024";if(uid<100000000L)yr="~2015";else if(uid<300000000L)yr="~2016";else if(uid<600000000L)yr="~2018";else if(uid<1000000000L)yr="~2019";else if(uid<1600000000L)yr="~2020";else if(uid<2200000000L)yr="~2021";else if(uid<5500000000L)yr="~2022";else if(uid<6800000000L)yr="~2023";else if(uid<7500000000L)yr="~2024";else yr="~2025-2026";String ph=(u!=null&&u.phone!=null&&!u.phone.isEmpty())?(" • +"+u.phone):"";return "ID: "+uid+" • "+dcStr+" • "+tr("Вік: ","Возраст: ","Age: ")+yr+ph;}catch(Throwable t){return "ID: "+uid;}}
@@ -124,8 +136,8 @@ jobs:
           final ActionBarMenuSubItem iOn=new ActionBarMenuSubItem(ctx,false,false);iOn.setTextAndIcon(tr("Онлайн радар: ","Онлайн радар: ","Online radar: ")+(did>0&&isWatched(a,did)?"ON":"OFF"),R.drawable.msg_contacts);iOn.setOnClickListener(v->{if(did>0&&did!=777000){toggleWatch(a,did);iOn.setText(tr("Онлайн радар: ","Онлайн радар: ","Online radar: ")+(isWatched(a,did)?"ON":"OFF"));}});layout.addView(iOn);
           final ActionBarMenuSubItem iAd=new ActionBarMenuSubItem(ctx,false,false);iAd.setTextAndIcon(tr("Анти-видалення: ","Анти-удаление: ","Anti-delete: ")+(isAntiDelete(a)?"ON":"OFF"),R.drawable.msg_delete);iAd.setOnClickListener(v->{boolean nx=!isAntiDelete(a);sp(a).edit().putBoolean("anti_del",nx).apply();iAd.setText(tr("Анти-видалення: ","Анти-удаление: ","Anti-delete: ")+(nx?"ON":"OFF"));});layout.addView(iAd);
           final ActionBarMenuSubItem iSel=new ActionBarMenuSubItem(ctx,false,false);iSel.setTextAndIcon(tr("Безліміт вибір: ","Безлимит выбор: ","Unlimited select: ")+(isUnlimitedSelect(a)?"ON":"OFF"),R.drawable.msg_settings);iSel.setOnClickListener(v->{boolean nx=!isUnlimitedSelect(a);sp(a).edit().putBoolean("unlim_sel",nx).apply();iSel.setText(tr("Безліміт вибір: ","Безлимит выбор: ","Unlimited select: ")+(nx?"ON":"OFF"));});layout.addView(iSel);
-          String[] vNames={"OFF",tr("Ніжний жін.","Нежный жен.","Soft Female"),tr("Грубий жін.","Грубый жен.","Deep Female"),tr("Ніжний чол.","Нежный муж.","Soft Male"),tr("Грубий чол.","Грубый муж.","Deep Male"),tr("Робот","Робот","Robot"),tr("Дитина","Ребенок","Child")};
-          ActionBarMenuSubItem iVc=new ActionBarMenuSubItem(ctx,false,false);iVc.setTextAndIcon(tr("Зміна голосу: ","Изменение голоса: ","Voice changer: ")+vNames[getVoiceMode(a)],R.drawable.msg_settings);iVc.setOnClickListener(v->{popup.dismiss();new AlertDialog.Builder(ctx).setTitle(tr("Зміна голосу","Изменение голоса","Voice changer")).setItems(vNames,(d,w)->sp(a).edit().putInt("voice_mode",w).apply()).show();});layout.addView(iVc);
+          String[] vNames={"OFF",tr("Ніжний жіночий","Нежный женский","Soft Female"),tr("Грубий жіночий","Грубый женский","Deep Female"),tr("Ніжний чоловічий","Нежный мужской","Soft Male"),tr("Грубий чоловічий","Грубый мужской","Deep Male"),tr("Роботизований","Роботизированный","Robotic"),tr("Дитина","Ребенок","Child")};
+          ActionBarMenuSubItem iVc=new ActionBarMenuSubItem(ctx,false,false);iVc.setTextAndIcon(tr("Зміна голосу: ","Изменение голоса: ","Voice changer: ")+vNames[getVoiceMode(a)],R.drawable.msg_settings);iVc.setOnClickListener(v->{popup.dismiss();new AlertDialog.Builder(ctx).setTitle(tr("Зміна голосу","Изменение голоса","Voice changer")).setItems(vNames,(d,w)->{sp(a).edit().putInt("voice_mode",w).apply();toast(tr("Голос: ","Голос: ","Voice: ")+vNames[w]);}).show();});layout.addView(iVc);
           final ActionBarMenuSubItem iVt=new ActionBarMenuSubItem(ctx,false,false);iVt.setTextAndIcon(tr("Таймінг ГС: ","Тайминг ГС: ","Voice timing: ")+(isVoiceTiming(a)?"ON":"OFF"),R.drawable.msg_recent);iVt.setOnClickListener(v->{boolean nx=!isVoiceTiming(a);sp(a).edit().putBoolean("voice_time",nx).apply();iVt.setText(tr("Таймінг ГС: ","Тайминг ГС: ","Voice timing: ")+(nx?"ON":"OFF"));});layout.addView(iVt);
           final ActionBarMenuSubItem iMp=new ActionBarMenuSubItem(ctx,false,false);iMp.setTextAndIcon(tr("Мут в ЛС: ","Мут в ЛС: ","Mute PM: ")+(isMutedPm(a,did)?"ON":"OFF"),R.drawable.msg_delete);iMp.setOnClickListener(v->{if(did>0){boolean nx=!isMutedPm(a,did);sp(a).edit().putBoolean("mute_pm_"+did,nx).apply();iMp.setText(tr("Мут в ЛС: ","Мут в ЛС: ","Mute PM: ")+(nx?"ON":"OFF"));}});layout.addView(iMp);
           ActionBarMenuSubItem iOd=new ActionBarMenuSubItem(ctx,false,false);iOd.setTextAndIcon(tr("Видалити свої СМС","Удалить свои СМС","Delete own messages"),R.drawable.msg_delete);iOd.setOnClickListener(v->{popup.dismiss();addTrashConfirmButton(anchor,ctx,a,did);});layout.addView(iOd);
@@ -141,53 +153,14 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-      - name: Generate 6 Custom DrgGram Icons & Patch All Hooks
+      - name: Patch Add Account Counter, Voice Changer & Hooks
         run: |
-          pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy
-          from PIL import Image, ImageDraw, ImageChops, ImageFilter
-          def make_icon(st, sz=512, fg_only=False):
-            S = 1024
-            im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-            if not fg_only:
-              bg = Image.new("RGBA", (S, S), (18, 18, 18, 255))
-              m = Image.new("L", (S, S), 0)
-              ImageDraw.Draw(m).rounded_rectangle([0, 0, S-1, S-1], radius=220, fill=255)
-              im.paste(bg, (0, 0), m)
-            sm = Image.new("L", (S, S), 0)
-            sd = ImageDraw.Draw(sm)
-            sd.polygon([(160,465),(835,185),(695,835),(365,585),(635,425),(315,520)], fill=255)
-            sd.polygon([(525,525),(640,345),(595,635)], fill=0)
-            sm = sm.filter(ImageFilter.GaussianBlur(3)).point(lambda p: 255 if p > 128 else 0)
-            fg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-            fd = ImageDraw.Draw(fg)
-            if st == "white": fd.rectangle([0,0,S,S], fill=(248,248,250,255))
-            elif st == "sunset":
-              for y in range(S): fd.line([(0,y),(S,y)], fill=(int(225+30*(y/S)),int(45+175*(y/S)),int(115-95*(y/S)),255))
-            elif st == "cyan": fd.rectangle([0,0,S,S], fill=(58,218,212,255))
-            elif st == "crimson": fd.rectangle([0,0,S,S], fill=(252,12,38,255))
-            elif st == "glitch":
-              im.paste((255,238,0,255), (0,0), ImageChops.offset(sm, -14, -8))
-              im.paste((0,240,255,255), (0,0), ImageChops.offset(sm, 14, 8))
-              fd.rectangle([0,0,S,S], fill=(250,250,252,255))
-            elif st == "matrix":
-              for y in range(0, S, 22):
-                for x in range(0, S, 22): fd.ellipse([x+2,y+2,x+18,y+18], fill=(250,250,250,255))
-            im.paste(fg, (0, 0), sm)
-            return im.resize((sz, sz), Image.LANCZOS)
-          styles = ["white", "sunset", "cyan", "crimson", "glitch", "matrix"]
           for root, _, files in os.walk("."):
             for f in files:
               p = os.path.join(root, f)
               try:
-                if f in ["ic_launcher_drg.png", "ic_launcher.png", "ic_launcher_round.png", "icon_background_sa.png", "intro_tg_plane.png"]:
-                  make_icon("white", Image.open(p).width, False).save(p)
-                elif f == "icon_foreground_sa.png":
-                  make_icon("white", Image.open(p).width, True).save(p)
-                for idx, st in enumerate(styles[1:], start=2):
-                  if f == f"icon_{idx}_background_sa.png": make_icon(st, Image.open(p).width, False).save(p)
-                  elif f in [f"icon_{idx}_foreground_sa.png", f"icon_{idx}_sa.png"]: make_icon(st, Image.open(p).width, True).save(p)
                 if f == "build.gradle":
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
@@ -208,18 +181,25 @@ jobs:
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string name="{k}">).*?(</string>)', r'\1DrgGram\2', c)
                   with open(p, "w", encoding="utf-8") as file: file.write(c)
+                elif f.endswith(".java") and "TMessagesProj" in p and "DrgPluginManager" not in f:
+                  with open(p, "r", encoding="utf-8") as file: jc = file.read()
+                  orig = jc
+                  jc = re.sub(r"\b(audioRecorder|audioRecord)\.read\s*\(", r"org.telegram.messenger.DrgPluginManager.readAudio(\1, ", jc)
+                  jc = jc.replace("LocaleController.getString(R.string.AddAccount)", "org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(LocaleController.getString(R.string.AddAccount))")
+                  jc = jc.replace("getString(R.string.AddAccount)", "org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(getString(R.string.AddAccount))")
+                  if jc != orig:
+                    with open(p, "w", encoding="utf-8") as file: file.write(jc)
               except Exception: pass
           def patch(path, pat, rep, cnt=1):
             if os.path.exists(path):
               with open(path, "r", encoding="utf-8") as f: s = f.read()
               with open(path, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt))
-          patch("TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java", r",\s*true\)", ", false)", 0)
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "bd8349bb595e55fd6cd5e0e8bfc83faf";')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(private\s+String\s+getStringInternal\s*\(\s*String\s+key\s*,\s*String\s+fallback\s*,\s*int\s+res\s*\)\s*\{)", r'\1 if ("AppName".equals(key) || "AppNameBeta".equals(key) || "Page1Title".equals(key)) return "DrgGram"; if ("DefaultIcon".equals(key)) return "DrgGram"; if ("VintageIcon".equals(key)) return "Sunset"; if ("AquaIcon".equals(key)) return "Cyan"; if ("PremiumIcon".equals(key)) return "Crimson"; if ("TurboIcon".equals(key)) return "Glitch"; if ("NoxIcon".equals(key)) return "Matrix"; if ("AddAccount".equals(key)) return org.telegram.messenger.DrgPluginManager.tr("Додати акаунт","Добавить аккаунт","Add Account") + " (" + org.telegram.messenger.DrgPluginManager.getActiveAccountsCount() + "/100)";')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(String\s+getStringInternal\s*\(\s*String\s+key[^)]*\)\s*\{)", r'\1 if ("AddAccount".equals(key)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null);')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
@@ -252,8 +232,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.2.${{ github.run_number }}
-          name: "DrgGram v2.2 (Build #${{ github.run_number }})"
-          body: "Офіційні ключі DrgGram + 6 кастомних іконок + Режим привида + Зміна голосу + Таймінг ГС + Мут в ЛС + Профіль ID/DC/Вік!"
+          tag_name: v2.3.${{ github.run_number }}
+          name: "DrgGram v2.3 (Build #${{ github.run_number }})"
+          body: "Крок 1: Лічильник Додати акаунт (1/100) + DSP Зміна голосу для ГС, кружечків та дзвінків!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
