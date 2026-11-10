@@ -15,6 +15,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+      - name: Initialize Submodules
+        run: |
+          git submodule init
+          git submodule update --init --recursive --depth=1
       - name: Reuse Prebuilt C++ Libraries (Fast 3-Min Build)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,8 +33,6 @@ jobs:
             cp -r /tmp/prev_libs/lib/* TMessagesProj/src/main/jniLibs/
             echo "FAST_BUILD=1" >> $GITHUB_ENV
           else
-            git submodule init
-            git submodule update --init --recursive --depth=1
             echo "FAST_BUILD=0" >> $GITHUB_ENV
           fi
       - name: Set up JDK 17
@@ -177,6 +179,6 @@ jobs:
         with:
           tag_name: v1.3.${{ github.run_number }}
           name: "DrgGram v1.3 (Build #${{ github.run_number }})"
-          body: "Виправлено вхід за номером телефону + швидка збірка без перекомпіляції C++!"
+          body: "Виправлено вхід за номером телефону + швидка збірка за 3 хвилини!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
