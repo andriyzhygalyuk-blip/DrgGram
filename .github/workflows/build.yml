@@ -69,8 +69,6 @@ jobs:
           import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
           import org.telegram.ui.ActionBar.ActionBarPopupWindow;
           import org.telegram.ui.ActionBar.AlertDialog;
-          import java.nio.ByteBuffer;
-          import java.nio.ByteOrder;
           import java.text.SimpleDateFormat;
           import java.util.*;
           public class DrgPluginManager {
@@ -106,7 +104,6 @@ jobs:
           public static int getGhostCount(int a){int c=0;for(int i=0;i<5;i++)if(isGhostOpt(a,i))c++;return c;}
           public static boolean shouldBlockRequest(final int a,TLObject req){if(req==null)return false;String n=req.getClass().getSimpleName().toLowerCase(Locale.US);if(isGhostOpt(a,0)&&System.currentTimeMillis()>allowReadUntil&&(n.contains("readhistory")||n.contains("readdiscussion")||n.contains("readencrypted")||n.contains("readmessagecontents")))return true;if(isGhostOpt(a,1)&&n.contains("readstories"))return true;if(isGhostOpt(a,3)&&n.contains("settyping"))return true;if(n.contains("updatestatus")){try{req.getClass().getField("offline").setBoolean(req,true);cachedOfflineReq=req;}catch(Throwable ignored){}if(isGhostOpt(a,2)||isGhostOpt(a,4))return false;}if(n.contains("sendmessage")||n.contains("sendmedia")){if(sp(a).getBoolean("ghost_sched",false)){try{java.lang.reflect.Field f=req.getClass().getField("schedule_date");if(f.getInt(req)==0)f.setInt(req,ConnectionsManager.getInstance(a).getCurrentTime()+12);}catch(Throwable ignored){}}if(sp(a).getBoolean("ghost_read_inter",true))allowReadUntil=System.currentTimeMillis()+3000L;if((isGhostOpt(a,2)||isGhostOpt(a,4))&&cachedOfflineReq!=null){H.postDelayed(()->{try{ConnectionsManager.getInstance(a).sendRequest(cachedOfflineReq,(res,err)->{});}catch(Throwable ignored){}},500);}}return false;}
           public static CharSequence processOutgoingWithTiming(int a,CharSequence in){if(in==null)return null;if(!isVoiceTiming(a))return in;try{MessageObject mo=MediaController.getInstance().getPlayingMessageObject();if(mo!=null&&mo.audioProgressSec>0){int sec=mo.audioProgressSec;String ts=String.format(Locale.US,"%02d:%02d ",sec/60,sec%60);if(!in.toString().startsWith(ts.trim()))return ts+in;}}catch(Throwable ignored){}return in;}
-          public static void transformVoiceByteBuffer(ByteBuffer buf,int len){int mode=getVoiceMode(lastAccount);if(mode<=0||buf==null||len<=2)return;try{buf.order(ByteOrder.LITTLE_ENDIAN);int count=len/2;short[] pcm=new short[count];for(int i=0;i<count;i++)pcm[i]=buf.getShort(i*2);float factor=1.0f;if(mode==1)factor=1.32f;else if(mode==2)factor=1.15f;else if(mode==3)factor=0.88f;else if(mode==4)factor=0.72f;else if(mode==6)factor=1.52f;if(mode==5){for(int i=0;i<count;i++){double mod=Math.sin(2.0*Math.PI*i*55.0/48000.0);pcm[i]=(short)Math.max(-32768,Math.min(32767,(int)(pcm[i]*mod*1.2)));}}else{short[] tmp=Arrays.copyOf(pcm,count);int win=512;for(int i=0;i<count;i++){int base=(i/win)*win;int off=(int)((i%win)*factor)%win;int idx=Math.min(count-1,base+off);int v=tmp[idx];if(i>0)v=(v*3+pcm[i-1])/4;pcm[i]=(short)Math.max(-32768,Math.min(32767,v));}}for(int i=0;i<count;i++)buf.putShort(i*2,pcm[i]);}catch(Throwable ignored){}}
           public static String getProfileBadge(int a,long uid){if(uid<=0)return "";try{TLRPC.User u=MessagesController.getInstance(a).getUser(uid);int dc=0;if(u!=null&&u.photo!=null)dc=u.photo.dc_id;String dcStr=dc>0?("DC"+dc):"DC2";String yr="~2024";if(uid<100000000L)yr="~2015";else if(uid<300000000L)yr="~2016";else if(uid<600000000L)yr="~2018";else if(uid<1000000000L)yr="~2019";else if(uid<1600000000L)yr="~2020";else if(uid<2200000000L)yr="~2021";else if(uid<5500000000L)yr="~2022";else if(uid<6800000000L)yr="~2023";else if(uid<7500000000L)yr="~2024";else yr="~2025-2026";String ph=(u!=null&&u.phone!=null&&!u.phone.isEmpty())?(" • +"+u.phone):"";return "ID: "+uid+" • "+dcStr+" • "+tr("Вік: ","Возраст: ","Age: ")+yr+ph;}catch(Throwable t){return "ID: "+uid;}}
           public static void attachProfileBadge(View root,final int a,final long uid){if(!(root instanceof ViewGroup)||uid<=0)return;try{ViewGroup vg=(ViewGroup)root;if(vg.findViewWithTag("drg_prof_badge")!=null)return;final String b=getProfileBadge(a,uid);TextView tv=new TextView(vg.getContext());tv.setTag("drg_prof_badge");tv.setText(b);tv.setTextColor(Color.WHITE);tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12);tv.setPadding(AndroidUtilities.dp(14),AndroidUtilities.dp(7),AndroidUtilities.dp(14),AndroidUtilities.dp(7));GradientDrawable gd=new GradientDrawable();gd.setColor(0xCC1E2732);gd.setCornerRadius(AndroidUtilities.dp(16));tv.setBackground(gd);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);lp.bottomMargin=AndroidUtilities.dp(24);tv.setOnClickListener(v->{AndroidUtilities.addToClipboard(String.valueOf(uid));toast(tr("ID скопійовано: ","ID скопирован: ","ID copied: ")+uid);});vg.addView(tv,lp);}catch(Throwable ignored){}}
           public static Set<String> watched(int a){return new HashSet<>(sp(a).getStringSet("watched",new HashSet<>()));}
@@ -144,201 +141,100 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-          - name: Generate 6 Custom DrgGram Icons & Patch All Hooks
-          run: |
+      - name: Generate 6 Custom DrgGram Icons & Patch All Hooks
+        run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy
           from PIL import Image, ImageDraw, ImageChops, ImageFilter
-
-          def make_drg_icon(style, size=512, transparent_fg=False):
-              S = 1024
-              img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-              if not transparent_fg:
-                  bg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-                  bd = ImageDraw.Draw(bg)
-                  for y in range(S):
-                      v = int(28 - 22 * (y / S))
-                      bd.line([(0, y), (S, y)], fill=(v, v, v, 255))
-                  mask = Image.new("L", (S, S), 0)
-                  ImageDraw.Draw(mask).rounded_rectangle([0, 0, S-1, S-1], radius=220, fill=255)
-                  img.paste(bg, (0, 0), mask)
-
-              outer = [(160, 465), (835, 185), (695, 835), (365, 585), (635, 425), (315, 520)]
-              hole  = [(525, 525), (640, 345), (595, 635)]
-              shape_mask = Image.new("L", (S, S), 0)
-              sd = ImageDraw.Draw(shape_mask)
-              sd.polygon(outer, fill=255)
-              sd.polygon(hole, fill=0)
-              shape_mask = shape_mask.filter(ImageFilter.GaussianBlur(3)).point(lambda p: 255 if p > 128 else 0)
-
-              fg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-              fd = ImageDraw.Draw(fg)
-              if style == "white":
-                  fd.rectangle([0, 0, S, S], fill=(248, 248, 250, 255))
-              elif style == "sunset":
-                  for y in range(S):
-                      r = int(225 + 30 * (y / S))
-                      g = int(45 + 175 * (y / S))
-                      b = int(115 - 95 * (y / S))
-                      fd.line([(0, y), (S, y)], fill=(r, g, b, 255))
-              elif style == "cyan":
-                  fd.rectangle([0, 0, S, S], fill=(58, 218, 212, 255))
-              elif style == "crimson":
-                  fd.rectangle([0, 0, S, S], fill=(252, 12, 38, 255))
-              elif style == "glitch":
-                  m_y = ImageChops.offset(shape_mask, -14, -8)
-                  m_c = ImageChops.offset(shape_mask, 14, 8)
-                  img.paste((255, 238, 0, 255), (0, 0), m_y)
-                  img.paste((0, 240, 255, 255), (0, 0), m_c)
-                  fd.rectangle([0, 0, S, S], fill=(250, 250, 252, 255))
-              elif style == "matrix":
-                  for y in range(0, S, 22):
-                      for x in range(0, S, 22):
-                          fd.ellipse([x+2, y+2, x+18, y+18], fill=(250, 250, 250, 255))
-
-              img.paste(fg, (0, 0), shape_mask)
-              return img.resize((size, size), Image.LANCZOS)
-
+          def make_icon(st, sz=512, fg_only=False):
+            S = 1024
+            im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+            if not fg_only:
+              bg = Image.new("RGBA", (S, S), (18, 18, 18, 255))
+              m = Image.new("L", (S, S), 0)
+              ImageDraw.Draw(m).rounded_rectangle([0, 0, S-1, S-1], radius=220, fill=255)
+              im.paste(bg, (0, 0), m)
+            sm = Image.new("L", (S, S), 0)
+            sd = ImageDraw.Draw(sm)
+            sd.polygon([(160,465),(835,185),(695,835),(365,585),(635,425),(315,520)], fill=255)
+            sd.polygon([(525,525),(640,345),(595,635)], fill=0)
+            sm = sm.filter(ImageFilter.GaussianBlur(3)).point(lambda p: 255 if p > 128 else 0)
+            fg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+            fd = ImageDraw.Draw(fg)
+            if st == "white": fd.rectangle([0,0,S,S], fill=(248,248,250,255))
+            elif st == "sunset":
+              for y in range(S): fd.line([(0,y),(S,y)], fill=(int(225+30*(y/S)),int(45+175*(y/S)),int(115-95*(y/S)),255))
+            elif st == "cyan": fd.rectangle([0,0,S,S], fill=(58,218,212,255))
+            elif st == "crimson": fd.rectangle([0,0,S,S], fill=(252,12,38,255))
+            elif st == "glitch":
+              im.paste((255,238,0,255), (0,0), ImageChops.offset(sm, -14, -8))
+              im.paste((0,240,255,255), (0,0), ImageChops.offset(sm, 14, 8))
+              fd.rectangle([0,0,S,S], fill=(250,250,252,255))
+            elif st == "matrix":
+              for y in range(0, S, 22):
+                for x in range(0, S, 22): fd.ellipse([x+2,y+2,x+18,y+18], fill=(250,250,250,255))
+            im.paste(fg, (0, 0), sm)
+            return im.resize((sz, sz), Image.LANCZOS)
           styles = ["white", "sunset", "cyan", "crimson", "glitch", "matrix"]
           for root, _, files in os.walk("."):
-              for f in files:
-                  p = os.path.join(root, f)
-                  if f in ["ic_launcher_drg.png", "ic_launcher.png", "ic_launcher_round.png", "icon_background_sa.png", "intro_tg_plane.png"]:
-                      try:
-                          im = Image.open(p)
-                          make_drg_icon("white", im.width, False).save(p)
-                      except Exception: pass
-                  elif f == "icon_foreground_sa.png":
-                      try:
-                          im = Image.open(p)
-                          make_drg_icon("white", im.width, True).save(p)
-                      except Exception: pass
-                  for idx, st in enumerate(styles[1:], start=2):
-                      if f == f"icon_{idx}_background_sa.png":
-                          try:
-                              im = Image.open(p)
-                              make_drg_icon(st, im.width, False).save(p)
-                          except Exception: pass
-                      elif f in [f"icon_{idx}_foreground_sa.png", f"icon_{idx}_sa.png"]:
-                          try:
-                              im = Image.open(p)
-                              make_drg_icon(st, im.width, True).save(p)
-                          except Exception: pass
-
-          lic_p = "TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java"
-          if os.path.exists(lic_p):
-              with open(lic_p, "r", encoding="utf-8") as f: lic = f.read()
-              lic = lic.replace(", true)", ", false)")
-              with open(lic_p, "w", encoding="utf-8") as f: f.write(lic)
-
-          for root, _, files in os.walk("."):
-              for f in files:
-                  p = os.path.join(root, f)
-                  if f == "build.gradle":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file: c = file.read()
-                          c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
-                          if os.environ.get("FAST_BUILD") == "1" and "TMessagesProj" in p:
-                              c = re.sub(r"path\s+['\"]jni/CMakeLists\.txt['\"]", "// prebuilt jniLibs", c)
-                          with open(p, "w", encoding="utf-8") as file: file.write(c)
-                      except Exception: pass
-                  elif f == "google-services.json":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file: gs = json.load(file)
-                          if "client" in gs and len(gs["client"]) > 0:
-                              for pkg in ["org.telegram.messenger.drggram", "org.telegram.messenger.drggram.web"]:
-                                  nc = copy.deepcopy(gs["client"][0])
-                                  nc["client_info"]["android_client_info"]["package_name"] = pkg
-                                  gs["client"].append(nc)
-                          with open(p, "w", encoding="utf-8") as file: json.dump(gs, file, indent=2)
-                      except Exception: pass
-                  elif f == "AndroidManifest.xml":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file: m = file.read()
-                          with open(p, "w", encoding="utf-8") as file: file.write(m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram."))
-                      except Exception: pass
-                  elif f == "strings.xml":
-                      try:
-                          with open(p, "r", encoding="utf-8") as file: c = file.read()
-                          for k in ["AppName", "AppNameBeta", "Page1Title"]:
-                              c = re.sub(rf'(<string name="{k}">).*?(</string>)', r'\1DrgGram\2', c)
-                          with open(p, "w", encoding="utf-8") as file: file.write(c)
-                      except Exception: pass
-
-          bv_p = "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
-          if os.path.exists(bv_p):
-              with open(bv_p, "r", encoding="utf-8") as f: bv = f.read()
-              bv = re.sub(r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;', bv)
-              bv = re.sub(r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "bd8349bb595e55fd6cd5e0e8bfc83faf";', bv)
-              bv = re.sub(r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";', bv)
-              bv = re.sub(r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;', bv)
-              bv = re.sub(r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;', bv)
-              with open(bv_p, "w", encoding="utf-8") as f: f.write(bv)
-
-          lc_p = "TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java"
-          if os.path.exists(lc_p):
-              with open(lc_p, "r", encoding="utf-8") as f: lc = f.read()
-              hook_lc = 'if ("AppName".equals(key) || "AppNameBeta".equals(key) || "Page1Title".equals(key)) return "DrgGram"; if ("DefaultIcon".equals(key)) return "DrgGram"; if ("VintageIcon".equals(key)) return "Sunset"; if ("AquaIcon".equals(key)) return "Cyan"; if ("PremiumIcon".equals(key)) return "Crimson"; if ("TurboIcon".equals(key)) return "Glitch"; if ("NoxIcon".equals(key)) return "Matrix"; if ("AddAccount".equals(key)) return org.telegram.messenger.DrgPluginManager.tr("Додати акаунт","Добавить аккаунт","Add Account") + " (" + org.telegram.messenger.DrgPluginManager.getActiveAccountsCount() + "/100)";'
-              lc = re.sub(r"(private\s+String\s+getStringInternal\s*\(\s*String\s+key\s*,\s*String\s+fallback\s*,\s*int\s+res\s*\)\s*\{)", r"\1 " + hook_lc, lc, count=1)
-              with open(lc_p, "w", encoding="utf-8") as f: f.write(lc)
-
-          uc_p = "TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java"
-          if os.path.exists(uc_p):
-              with open(uc_p, "r", encoding="utf-8") as f: uc = f.read()
-              uc = re.sub(r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;", uc)
-              uc = re.sub(r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;", uc)
-              uc = re.sub(r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;", uc)
-              with open(uc_p, "w", encoding="utf-8") as f: f.write(uc)
-
-          cm_j = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
-          if os.path.exists(cm_j):
-              with open(cm_j, "r", encoding="utf-8") as f: cj = f.read()
-              cj = re.sub(r"(public\s+void\s+init\s*\([^)]*String\s+deviceModel\s*,\s*String\s+systemVersion[^)]*\)\s*\{)", r"\1 deviceModel = org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount); systemVersion = org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount); regId = org.telegram.messenger.DrgPluginManager.getIsolatedRegId(currentAccount, regId);", cj, count=1)
-              cj = re.sub(r"(private\s+void\s+sendRequestInternal\s*\(\s*TLObject\s+(\w+)[^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.shouldBlockRequest(currentAccount, \2)) return;", cj, count=1)
-              with open(cm_j, "w", encoding="utf-8") as f: f.write(cj)
-
-          ab_p = "TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java"
-          if os.path.exists(ab_p):
-              with open(ab_p, "r", encoding="utf-8") as f: ab = f.read()
-              h = 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(this); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu('
-              ab, _ = re.subn(r"public\s+void\s+toggleSubMenu\s*\(", h, ab, count=1)
-              ab = re.sub(r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 injectDrgMenuIfNeeded();", ab)
-              with open(ab_p, "w", encoding="utf-8") as f: f.write(ab)
-
-          cmc_p = "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java"
-          if os.path.exists(cmc_p):
-              with open(cmc_p, "r", encoding="utf-8") as f: cmc = f.read()
-              cmc = re.sub(r"(currentTimeString\s*=\s*[^;]+;)", r'\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentMessageObject.getId())) { currentTimeString = "🗑 " + currentTimeString; }', cmc, count=1)
-              with open(cmc_p, "w", encoding="utf-8") as f: f.write(cmc)
-
-          ca_p = "TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java"
-          if os.path.exists(ca_p):
-              with open(ca_p, "r", encoding="utf-8") as f: ca = f.read()
-              ca = re.sub(r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount);", ca, count=1)
-              ca = ca.replace(">= 100", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)")
-              with open(ca_p, "w", encoding="utf-8") as f: f.write(ca)
-
-          pa_p = "TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java"
-          if os.path.exists(pa_p):
-              with open(pa_p, "r", encoding="utf-8") as f: pa = f.read()
-              pa = re.sub(r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.attachProfileBadge(fragmentView, currentAccount, user_id);", pa, count=1)
-              with open(pa_p, "w", encoding="utf-8") as f: f.write(pa)
-
-          ev_p = "TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java"
-          if os.path.exists(ev_p):
-              with open(ev_p, "r", encoding="utf-8") as f: ev = f.read()
-              ev = re.sub(r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)", r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoingWithTiming(currentAccount, \3);", ev, count=1)
-              with open(ev_p, "w", encoding="utf-8") as f: f.write(ev)
-
-          for p, pat, rep in [
-              ("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+boolean\s+processUpdateArray\s*\(\s*ArrayList<TLRPC\.Update>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onProcessUpdates(currentAccount, \2);"),
-              ("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDelete(currentAccount)) return;"),
-              ("TMessagesProj/src/main/java/org/telegram/messenger/NotificationsService.java", r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);")
-          ]:
-              if os.path.exists(p):
-                  with open(p, "r", encoding="utf-8") as f: s = f.read()
-                  with open(p, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=1))
+            for f in files:
+              p = os.path.join(root, f)
+              try:
+                if f in ["ic_launcher_drg.png", "ic_launcher.png", "ic_launcher_round.png", "icon_background_sa.png", "intro_tg_plane.png"]:
+                  make_icon("white", Image.open(p).width, False).save(p)
+                elif f == "icon_foreground_sa.png":
+                  make_icon("white", Image.open(p).width, True).save(p)
+                for idx, st in enumerate(styles[1:], start=2):
+                  if f == f"icon_{idx}_background_sa.png": make_icon(st, Image.open(p).width, False).save(p)
+                  elif f in [f"icon_{idx}_foreground_sa.png", f"icon_{idx}_sa.png"]: make_icon(st, Image.open(p).width, True).save(p)
+                if f == "build.gradle":
+                  with open(p, "r", encoding="utf-8") as file: c = file.read()
+                  c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
+                  if os.environ.get("FAST_BUILD") == "1" and "TMessagesProj" in p: c = re.sub(r"path\s+['\"]jni/CMakeLists\.txt['\"]", "// prebuilt", c)
+                  with open(p, "w", encoding="utf-8") as file: file.write(c)
+                elif f == "google-services.json":
+                  with open(p, "r", encoding="utf-8") as file: gs = json.load(file)
+                  if "client" in gs and len(gs["client"]) > 0:
+                    for pkg in ["org.telegram.messenger.drggram", "org.telegram.messenger.drggram.web"]:
+                      nc = copy.deepcopy(gs["client"][0])
+                      nc["client_info"]["android_client_info"]["package_name"] = pkg
+                      gs["client"].append(nc)
+                  with open(p, "w", encoding="utf-8") as file: json.dump(gs, file, indent=2)
+                elif f == "AndroidManifest.xml":
+                  with open(p, "r", encoding="utf-8") as file: m = file.read()
+                  with open(p, "w", encoding="utf-8") as file: file.write(m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram."))
+                elif f == "strings.xml":
+                  with open(p, "r", encoding="utf-8") as file: c = file.read()
+                  for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string name="{k}">).*?(</string>)', r'\1DrgGram\2', c)
+                  with open(p, "w", encoding="utf-8") as file: file.write(c)
+              except Exception: pass
+          def patch(path, pat, rep, cnt=1):
+            if os.path.exists(path):
+              with open(path, "r", encoding="utf-8") as f: s = f.read()
+              with open(path, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt))
+          patch("TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java", r",\s*true\)", ", false)", 0)
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "bd8349bb595e55fd6cd5e0e8bfc83faf";')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(private\s+String\s+getStringInternal\s*\(\s*String\s+key\s*,\s*String\s+fallback\s*,\s*int\s+res\s*\)\s*\{)", r'\1 if ("AppName".equals(key) || "AppNameBeta".equals(key) || "Page1Title".equals(key)) return "DrgGram"; if ("DefaultIcon".equals(key)) return "DrgGram"; if ("VintageIcon".equals(key)) return "Sunset"; if ("AquaIcon".equals(key)) return "Cyan"; if ("PremiumIcon".equals(key)) return "Crimson"; if ("TurboIcon".equals(key)) return "Glitch"; if ("NoxIcon".equals(key)) return "Matrix"; if ("AddAccount".equals(key)) return org.telegram.messenger.DrgPluginManager.tr("Додати акаунт","Добавить аккаунт","Add Account") + " (" + org.telegram.messenger.DrgPluginManager.getActiveAccountsCount() + "/100)";')
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
+          patch("TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java", r"(public\s+void\s+init\s*\([^)]*String\s+deviceModel\s*,\s*String\s+systemVersion[^)]*\)\s*\{)", r"\1 deviceModel = org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount); systemVersion = org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount); regId = org.telegram.messenger.DrgPluginManager.getIsolatedRegId(currentAccount, regId);")
+          patch("TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java", r"(private\s+void\s+sendRequestInternal\s*\(\s*TLObject\s+(\w+)[^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.shouldBlockRequest(currentAccount, \2)) return;")
+          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java", r"public\s+void\s+toggleSubMenu\s*\(", 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(this); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu(')
+          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java", r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 injectDrgMenuIfNeeded();", 0)
+          patch("TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r'\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentMessageObject.getId())) { currentTimeString = "🗑 " + currentTimeString; }')
+          patch("TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount);")
+          patch("TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java", r">=\s*100\b", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
+          patch("TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.attachProfileBadge(fragmentView, currentAccount, user_id);")
+          patch("TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java", r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)", r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoingWithTiming(currentAccount, \3);")
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+boolean\s+processUpdateArray\s*\(\s*ArrayList<TLRPC\.Update>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onProcessUpdates(currentAccount, \2);")
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDelete(currentAccount)) return;")
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/NotificationsService.java", r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);")
           EOF
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
