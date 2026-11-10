@@ -15,23 +15,41 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Initialize Submodules
+      - name: Reuse Prebuilt C++ Libraries (Fast 3-Min Build)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git submodule init
-          git submodule update --init --recursive --depth=1
+          mkdir -p /tmp/prev /tmp/prev_libs
+          gh release download --pattern "DrgGram.apk" -D /tmp/prev --clobber || true
+          if [ -f /tmp/prev/DrgGram.apk ]; then
+            echo "⚡ Знайдено готове C++ ядро з попереднього релізу! Пропускаємо компіляцію C++!"
+            unzip -q /tmp/prev/DrgGram.apk "lib/*" -d /tmp/prev_libs
+            mkdir -p TMessagesProj/jniLibs TMessagesProj/src/main/jniLibs
+            cp -r /tmp/prev_libs/lib/* TMessagesProj/jniLibs/
+            cp -r /tmp/prev_libs/lib/* TMessagesProj/src/main/jniLibs/
+            echo "FAST_BUILD=1" >> $GITHUB_ENV
+          else
+            git submodule init
+            git submodule update --init --recursive --depth=1
+            echo "FAST_BUILD=0" >> $GITHUB_ENV
+          fi
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: Setup Android SDK & NDK
+      - name: Setup Android SDK
         run: |
           API_VER=$(grep '^ENV ANDROID_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36")
           BT_VER=$(grep '^ENV ANDROID_BUILD_TOOLS_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36.0.0")
           NDK_VER=$(grep '^ENV ANDROID_NDK_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "27.2.12479018")
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-${API_VER}" "build-tools;${BT_VER}" "ndk;${NDK_VER}" "cmake;3.22.1"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VER}" >> $GITHUB_ENV
+          if [ "$FAST_BUILD" = "1" ]; then
+            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-${API_VER}" "build-tools;${BT_VER}"
+          else
+            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-${API_VER}" "build-tools;${BT_VER}" "ndk;${NDK_VER}" "cmake;3.22.1"
+            echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VER}" >> $GITHUB_ENV
+          fi
       - name: Create DrgPluginManager.java
         run: |
           cat << 'EOF' > TMessagesProj/src/main/java/org/telegram/messenger/DrgPluginManager.java
@@ -76,7 +94,7 @@ jobs:
           public static CharSequence processOutgoing(CharSequence in){return in;}
           }
           EOF
-      - name: Patch Package ID & Hooks
+      - name: Patch Package ID, Login Fix & Hooks
         run: |
           python3 << 'EOF'
           import os, re, json, copy
@@ -87,6 +105,8 @@ jobs:
                       try:
                           with open(p, "r", encoding="utf-8") as file: c = file.read()
                           c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
+                          if os.environ.get("FAST_BUILD") == "1" and "TMessagesProj" in p:
+                              c = re.sub(r"path\s+['\"]jni/CMakeLists\.txt['\"]", "// prebuilt jniLibs", c)
                           with open(p, "w", encoding="utf-8") as file: file.write(c)
                       except Exception: pass
                   elif f == "google-services.json":
@@ -111,6 +131,15 @@ jobs:
                           c = re.sub(r'(<string name="AppNameBeta">).*?(</string>)', r'\1DrgGram\2', c)
                           with open(p, "w", encoding="utf-8") as file: file.write(c)
                       except Exception: pass
+          bv_p = "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
+          if os.path.exists(bv_p):
+              with open(bv_p, "r", encoding="utf-8") as f: bv = f.read()
+              bv = re.sub(r'APP_ID\s*=\s*4\s*;', 'APP_ID = 10029733;', bv)
+              bv = re.sub(r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "d0d81009d46e774f78c0e0e622f5fa21";', bv)
+              bv = re.sub(r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";', bv)
+              bv = re.sub(r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;', bv)
+              bv = re.sub(r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;', bv)
+              with open(bv_p, "w", encoding="utf-8") as f: f.write(bv)
           ab_p = "TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java"
           if os.path.exists(ab_p):
               with open(ab_p, "r", encoding="utf-8") as f: ab = f.read()
@@ -129,16 +158,6 @@ jobs:
                   with open(p, "r", encoding="utf-8") as f: s = f.read()
                   with open(p, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=1))
           EOF
-          find TMessagesProj/jni -exec touch -d "2025-01-01 00:00:00" {} + || true
-      - name: Restore Native C++ Cache (.cxx)
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            TMessagesProj/.cxx
-            TMessagesProj/build/intermediates/cxx
-          key: drggram-cxx-32-64-v3
-          restore-keys: |
-            drggram-cxx-32-64-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -147,14 +166,7 @@ jobs:
         run: |
           gradle --parallel :TMessagesProj_AppStandalone:assembleAfatStandalone
           find . -path "*/outputs/apk/*" -name "*.apk" -exec cp {} ./DrgGram.apk \;
-      - name: Save Native C++ Cache Always
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: |
-            TMessagesProj/.cxx
-            TMessagesProj/build/intermediates/cxx
-          key: drggram-cxx-32-64-v4
+          unzip -l ./DrgGram.apk | grep libtmessages || true
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -163,8 +175,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.${{ github.run_number }}
-          name: "DrgGram v1.2 (Build #${{ github.run_number }})"
-          body: "Окремий пакет org.telegram.messenger.drggram (32-bit + 64-bit) + меню ⚡ DrgPlugins!"
+          tag_name: v1.3.${{ github.run_number }}
+          name: "DrgGram v1.3 (Build #${{ github.run_number }})"
+          body: "Виправлено вхід за номером телефону + швидка збірка без перекомпіляції C++!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
