@@ -19,17 +19,16 @@ jobs:
         run: |
           git submodule init
           git submodule update --init --recursive --depth=1
-      - name: Reuse Prebuilt C++ Libraries (Fast 3-Min Build)
+      - name: Reuse Prebuilt C++ Libraries (Fast 2-Min Build)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p /tmp/prev /tmp/prev_libs
           gh release download --pattern "DrgGram.apk" -D /tmp/prev --clobber || true
           if [ -f /tmp/prev/DrgGram.apk ]; then
-            echo "⚡ Знайдено готове C++ ядро з попереднього релізу! Пропускаємо компіляцію C++!"
-            unzip -q /tmp/prev/DrgGram.apk "lib/*" -d /tmp/prev_libs
-            mkdir -p TMessagesProj/jniLibs TMessagesProj/src/main/jniLibs
-            cp -r /tmp/prev_libs/lib/* TMessagesProj/jniLibs/
+            echo "⚡ Знайдено готове C++ ядро! Дістаємо libtmessages.so..."
+            unzip -q /tmp/prev/DrgGram.apk "lib/*/*tmessages*.so" -d /tmp/prev_libs
+            mkdir -p TMessagesProj/src/main/jniLibs
             cp -r /tmp/prev_libs/lib/* TMessagesProj/src/main/jniLibs/
             echo "FAST_BUILD=1" >> $GITHUB_ENV
           else
@@ -179,6 +178,6 @@ jobs:
         with:
           tag_name: v1.3.${{ github.run_number }}
           name: "DrgGram v1.3 (Build #${{ github.run_number }})"
-          body: "Виправлено вхід за номером телефону + швидка збірка за 3 хвилини!"
+          body: "Виправлено вхід за номером телефону + швидка збірка за 2 хвилини!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
