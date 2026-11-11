@@ -184,7 +184,7 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-      - name: Process All 6 Uploaded Icons & Patch Hooks
+      - name: Sync All 6 Icons Across Manifest, Mipmaps & Controller
         run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
@@ -243,11 +243,15 @@ jobs:
               ar.save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
               ar.save(os.path.join(res_xx, fg_names[idx]))
           black_shape = '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF0A0A0C"/><corners android:radius="24dp"/></shape>'
+          def make_adaptive_xml(idx):
+            return f'<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/drg_bg_black"/><foreground android:drawable="@drawable/drg_fg_{idx}"/></adaptive-icon>'
           def get_dim(path):
             try:
               with Image.open(path) as im: return im.size
             except Exception: return (144, 144)
           rev_fg = {v: k for k, v in fg_names.items()}
+          mip_png_map = {"ic_launcher.png":1,"ic_launcher_round.png":1,"ic_launcher_drg.png":1,"ic_launcher_sa.png":1,"icon_2_sa.png":2,"icon_3_sa.png":3,"icon_4_sa.png":4,"icon_5_sa.png":5,"icon_6_sa.png":6,"icon_2_round_sa.png":2,"icon_3_round_sa.png":3,"icon_4_round_sa.png":4,"icon_5_round_sa.png":5,"icon_6_round_sa.png":6}
+          mip_xml_map = {"ic_launcher.xml":1,"ic_launcher_round.xml":1,"ic_launcher_sa.xml":1,"ic_launcher_round_sa.xml":1,"icon_2_sa.xml":2,"icon_3_sa.xml":3,"icon_4_sa.xml":4,"icon_5_sa.xml":5,"icon_6_sa.xml":6,"icon_2_round_sa.xml":2,"icon_3_round_sa.xml":3,"icon_4_round_sa.xml":4,"icon_5_round_sa.xml":5,"icon_6_round_sa.xml":6}
           for root, _, files in os.walk("."):
             for f in files:
               p = os.path.join(root, f)
@@ -255,15 +259,20 @@ jobs:
                 if f.startswith("icon_") and "foreground" in f and f.endswith(".xml"): os.remove(p); continue
                 if ("icon_" in f or "ic_launcher" in f) and "background" in f and f.endswith(".xml"):
                   with open(p, "w", encoding="utf-8") as file: file.write(black_shape); continue
+                if f in mip_xml_map and "mipmap" in root:
+                  with open(p, "w", encoding="utf-8") as file: file.write(make_adaptive_xml(mip_xml_map[f])); continue
                 if f in rev_fg:
                   ar = arrows.get(rev_fg[f], arrows.get(1))
                   if ar: ar.resize(get_dim(p), Image.LANCZOS).save(p)
-                elif f in ["ic_launcher.png","ic_launcher_round.png","ic_launcher_drg.png","intro_tg_plane.png"] and 1 in arrows:
-                  sz = get_dim(p)
-                  full_ic = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
-                  ImageDraw.Draw(full_ic).rounded_rectangle([16, 16, 416, 416], radius=96, fill=(10, 10, 12, 255))
-                  full_ic.paste(arrows[1], (0, 0), arrows[1])
-                  full_ic.resize(sz, Image.LANCZOS).save(p)
+                elif f in mip_png_map or f == "intro_tg_plane.png":
+                  idx = mip_png_map.get(f, 1)
+                  ar = arrows.get(idx, arrows.get(1))
+                  if ar:
+                    sz = get_dim(p)
+                    full_ic = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+                    ImageDraw.Draw(full_ic).rounded_rectangle([16, 16, 416, 416], radius=96, fill=(10, 10, 12, 255))
+                    full_ic.paste(ar, (0, 0), ar)
+                    full_ic.resize(sz, Image.LANCZOS).save(p)
                 elif f == "notification.png" and 1 in arrows:
                   arrows[1].resize(get_dim(p), Image.LANCZOS).save(p)
                 elif "background" in f and f.endswith(".png") and ("icon_" in f or "ic_launcher" in f):
@@ -289,7 +298,10 @@ jobs:
                   with open(p, "w", encoding="utf-8") as file: json.dump(gs, file, indent=2)
                 elif f == "AndroidManifest.xml":
                   with open(p, "r", encoding="utf-8") as file: m = file.read()
-                  with open(p, "w", encoding="utf-8") as file: file.write(m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram."))
+                  m = m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram.")
+                  for al, mp in [("VintageIcon","icon_2_sa"),("AquaIcon","icon_3_sa"),("PremiumIcon","icon_4_sa"),("TurboIcon","icon_5_sa"),("NoxIcon","icon_6_sa")]:
+                    m = re.sub(rf"(<activity-alias[^>]*{al}[^>]*>)", lambda mt: re.sub(r'android:(roundIcon|icon)="@[^"]+"', rf'android:\1="@mipmap/{mp}"', mt.group(0)), m)
+                  with open(p, "w", encoding="utf-8") as file: file.write(m)
                 elif f == "strings.xml":
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string name="{k}">).*?(</string>)', r'\1DrgGram\2', c)
@@ -365,8 +377,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.23.${{ github.run_number }}
-          name: "DrgGram v2.23 (Build #${{ github.run_number }})"
-          body: "Ідеально чисті іконки на прозорій підкладці (без квадратних кутів і білих ліній) + зменшений на 20% розмір!"
+          tag_name: v2.24.${{ github.run_number }}
+          name: "DrgGram v2.24 (Build #${{ github.run_number }})"
+          body: "Повна синхронізація всіх 6 іконок між налаштуваннями та робочим столом!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
