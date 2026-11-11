@@ -1,4 +1,4 @@
-## DrgGram telegram-client for Android
+## DrgGram client for Android
 
 ## ⚡ Introducing our Telegram client DrgGram which is made on the original code of the Telegram application that removes all freezes and hidden phishing functions like in applications Ayugram or Exteragram, where due to the negligence of developers and the ability of any malicious person to create their own plugins, your data can be stolen along with your accounts.
 
