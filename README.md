@@ -2,13 +2,13 @@
 
 ## ⚡ Introducing our Telegram client DrgGram which is made on the original code of the Telegram application that removes all freezes and hidden phishing functions like in applications Ayugram or Exteragram, where due to the negligence of developers and the ability of any malicious person to create their own plugins, your data can be stolen along with your accounts.
 
-🔒 The development of the DrgGram application is handled by only one person and he writes the plugins manually on the original code in which the original application is written, so you will forget about stolen data or accounts, as well as friezes.
+\\ The development of the DrgGram application is handled by only one person and he writes the plugins manually on the original code in which the original application is written, so you will forget about stolen data or accounts, as well as friezes.
 
 ## Advantages of our telegram-client:
-▶️ Support for up to 100 accounts with automatic replacement for 100 different devices for each account so that there are no crashes and Telegram servers do not see suspicious activity.
-▶️ Fully open source code.
-▶️ The announcement of open source plugins that have nothing to do with applications Ayugram or Exteragram.
-▶️ All plugins are created by one person and only this person releases them in updates, thus eliminating the possibility of abuse of the application and the risk of phishing.
+• Support for up to 100 accounts with automatic replacement for 100 different devices for each account so that there are no crashes and Telegram servers do not see suspicious activity.
+• Fully open source code.
+• The announcement of open source plugins that have nothing to do with applications Ayugram or Exteragram.
+• All plugins are created by one person and only this person releases them in updates, thus eliminating the possibility of abuse of the application and the risk of phishing.
 
 ## List of DrgPlugins on last update:
 👁 Invisible mode where no one will be able to see that you are online under any circumstances, even if you send a message.
