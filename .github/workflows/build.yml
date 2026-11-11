@@ -97,7 +97,7 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void applyIntroLogoOverlay(final View root){if(!(root instanceof ViewGroup))return;H.postDelayed(()->{try{ViewGroup vg=(ViewGroup)root;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch instanceof TextureView||ch.getClass().getSimpleName().contains("GLSurface")||ch.getClass().getSimpleName().contains("Intro")){ch.setVisibility(View.INVISIBLE);}}if(vg.findViewWithTag("drg_intro_logo")!=null)return;ImageView iv=new ImageView(vg.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_fg_1);iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);int pad=AndroidUtilities.dp(24);iv.setPadding(pad,pad,pad,pad);GradientDrawable bg=new GradientDrawable();bg.setShape(GradientDrawable.OVAL);bg.setColor(0xFF0C0C0E);bg.setStroke(AndroidUtilities.dp(1),0x33FFFFFF);iv.setBackground(bg);int sz=AndroidUtilities.dp(140);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.TOP|Gravity.CENTER_HORIZONTAL);lp.topMargin=AndroidUtilities.dp(88);vg.addView(iv,lp);}catch(Throwable ignored){}},50);}
+          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,150,400,900}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&"Telegram".equalsIgnoreCase(cs.toString().trim()))((TextView)v).setText("DrgGram");}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")){v.setAlpha(0f);ViewParent vp=v.getParent();if(vp instanceof ViewGroup){ViewGroup p=(ViewGroup)vp;if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_fg_1);iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);GradientDrawable bg=new GradientDrawable();bg.setShape(GradientDrawable.OVAL);bg.setColor(0xFF0C0C0E);bg.setStroke(AndroidUtilities.dp(1),0x28FFFFFF);iv.setBackground(bg);int sz=Math.max(AndroidUtilities.dp(150),v.getWidth());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER);p.addView(iv,lp);}}}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();if(!themeChecked){themeChecked=true;try{if(!gsp().getBoolean("def_dark_set",false)){gsp().edit().putBoolean("def_dark_set",true).apply();Theme.ThemeInfo ti=Theme.getTheme("Night");if(ti!=null)Theme.applyTheme(ti,true);}}catch(Throwable ignored){}}try{for(int i=0;i<100;i++){if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}if(ctx!=null&&UserConfig.getInstance(lastAccount).isClientActivated()&&!gsp().getBoolean("cloud_theme_li7_v6",false)){H.postDelayed(()->{try{if(!gsp().getBoolean("cloud_theme_li7_v6",false)){autoApplyUntil=System.currentTimeMillis()+15000L;Browser.openUrl(ctx,"https://t.me/addtheme/LI7QcIKVHvlhNHp7");}}catch(Throwable ignored){}},1600);}}catch(Throwable ignored){}}
           public static void autoConfirmThemePreview(final View root){if(System.currentTimeMillis()>autoApplyUntil||root==null)return;for(int d:new int[]{150,400,800,1400}){H.postDelayed(()->{try{if(System.currentTimeMillis()<=autoApplyUntil&&clickApplyInPreview(root)){autoApplyUntil=0;gsp().edit().putBoolean("cloud_theme_li7_v6",true).apply();}}catch(Throwable ignored){}},d);}}
           private static boolean clickApplyInPreview(View root){int screenH=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().heightPixels;int screenW=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().widthPixels;List<View> all=new ArrayList<>();collectViews(root,all);for(View v:all){if(v instanceof TextView&&v.getVisibility()==View.VISIBLE){CharSequence cs=((TextView)v).getText();String s=cs!=null?cs.toString().toLowerCase(Locale.ROOT).trim():"";if(s.contains("застосувати")||s.contains("применить")||s.contains("apply")||s.contains("встановити")||s.contains("установить")){View target=v;while(target!=null&&!target.isClickable()&&target.getParent() instanceof View)target=(View)target.getParent();if(target!=null&&target.isClickable()){target.performClick();return true;}v.performClick();return true;}}}for(int i=all.size()-1;i>=0;i--){View v=all.get(i);if(v.isClickable()&&v.hasOnClickListeners()&&v.getVisibility()==View.VISIBLE){int[] loc=new int[2];v.getLocationOnScreen(loc);int cx=loc[0]+v.getWidth()/2;if(loc[1]>=screenH*2/3&&cx>=screenW/2){v.performClick();return true;}}}return false;}
@@ -183,7 +183,7 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-      - name: Generate 6 Black Icons, Patch Intro Logo & Radar Hooks
+      - name: Generate Exact 6 Custom Icons, Replace All Foregrounds/Backgrounds & Hooks
         run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
@@ -192,11 +192,17 @@ jobs:
           def make_drg(st, sz=432, fg_only=False):
             S = 1024
             im = Image.new("RGBA", (S, S), (0, 0, 0, 0) if fg_only else (12, 12, 14, 255))
+            raw = [(0.135,0.455),(0.860,0.165),(0.735,0.840),(0.345,0.565),(0.640,0.425),(0.525,0.595),(0.625,0.655),(0.715,0.305),(0.265,0.520)]
+            pad = 225 if fg_only else 160
+            box = S - 2 * pad
+            pts = [(int(pad + x * box), int(pad + y * box)) for x, y in raw]
             sm = Image.new("L", (S, S), 0)
             sd = ImageDraw.Draw(sm)
-            sd.polygon([(165,470),(835,180),(695,835),(360,585),(635,420),(320,520)], fill=255)
-            sd.polygon([(525,525),(640,345),(595,635)], fill=0)
-            sm = sm.filter(ImageFilter.GaussianBlur(4)).point(lambda p: 255 if p > 120 else 0)
+            sd.polygon(pts, fill=255)
+            for idx, r in [(0,22),(1,38),(2,42),(3,36),(4,14),(8,18)]:
+              cx, cy = pts[idx]
+              sd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=255)
+            sm = sm.filter(ImageFilter.GaussianBlur(8)).point(lambda p: 255 if p > 118 else 0).filter(ImageFilter.GaussianBlur(2))
             fg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
             fd = ImageDraw.Draw(fg)
             if st == "white": fd.rectangle([0,0,S,S], fill=(248,248,252,255))
@@ -205,34 +211,49 @@ jobs:
               for y in range(S): fd.line([(0,y),(S,y)], fill=(int(225+30*(y/S)),int(45+175*(y/S)),int(115-95*(y/S)),255))
             elif st == "crimson": fd.rectangle([0,0,S,S], fill=(252,10,36,255))
             elif st == "glitch":
-              im.paste((255,238,0,255), (0,0), ImageChops.offset(sm, -15, -9))
-              im.paste((0,240,255,255), (0,0), ImageChops.offset(sm, 15, 9))
+              im.paste((255,238,0,255), (0,0), ImageChops.offset(sm, -12, -7))
+              im.paste((0,240,255,255), (0,0), ImageChops.offset(sm, 12, 7))
               fd.rectangle([0,0,S,S], fill=(250,250,252,255))
             elif st == "matrix":
-              for y in range(0, S, 22):
-                for x in range(0, S, 22): fd.ellipse([x+2,y+2,x+18,y+18], fill=(250,250,250,255))
+              for y in range(0, S, 18):
+                for x in range(0, S, 18): fd.ellipse([x+2,y+2,x+14,y+14], fill=(250,250,250,255))
             im.paste(fg, (0, 0), sm)
             return im.resize((sz, sz), Image.LANCZOS)
+          styles = ["white","cyan","sunset","crimson","glitch","matrix"]
           res_xx = "TMessagesProj/src/main/res/drawable-xxhdpi"
           os.makedirs(res_xx, exist_ok=True)
           Image.new("RGBA", (432, 432), (12, 12, 14, 255)).save(os.path.join(res_xx, "drg_bg_black.png"))
-          for idx, st in enumerate(["white","cyan","sunset","crimson","glitch","matrix"], start=1):
+          for idx, st in enumerate(styles, start=1):
             make_drg(st, 432, True).save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
+          fg_map = {"icon_foreground_sa.png":"white","icon_2_foreground_sa.png":"cyan","icon_3_foreground_sa.png":"sunset","icon_4_foreground_sa.png":"crimson","icon_5_foreground_sa.png":"glitch","icon_6_foreground_sa.png":"matrix"}
+          for fn, st in fg_map.items():
+            make_drg(st, 432, True).save(os.path.join(res_xx, fn))
           black_vec = '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FF0C0C0E" android:pathData="M0,0h108v108h-108z"/></vector>'
           for root, _, files in os.walk("."):
             for f in files:
               p = os.path.join(root, f)
               try:
-                if f.startswith("icon_") and f.endswith("background_sa.xml"):
+                if f.startswith("icon_") and f.endswith("foreground_sa.xml"):
+                  os.remove(p); continue
+                if ("icon_" in f or "ic_launcher" in f) and "background" in f and f.endswith(".xml"):
                   with open(p, "w", encoding="utf-8") as file: file.write(black_vec)
                   continue
-                if f in ["ic_launcher_drg.png","ic_launcher.png","ic_launcher_round.png","intro_tg_plane.png"]:
+                if f in fg_map:
+                  make_drg(fg_map[f], Image.open(p).width, True).save(p)
+                elif f in ["ic_launcher_drg.png","ic_launcher.png","ic_launcher_round.png","intro_tg_plane.png"]:
                   make_drg("white", Image.open(p).width, False).save(p)
-                elif f in ["icon_foreground_sa.png","notification.png"]:
+                elif f == "notification.png":
                   make_drg("white", Image.open(p).width, True).save(p)
-                elif f.endswith("_background_sa.png"):
+                elif "background" in f and f.endswith(".png") and ("icon_" in f or "ic_launcher" in f):
                   w = Image.open(p).width
                   Image.new("RGBA", (w, w), (12, 12, 14, 255)).save(p)
+                if f == "LauncherIconController.java":
+                  with open(p, "r", encoding="utf-8") as file: s = file.read()
+                  s = re.sub(r"R\.drawable\.icon_\d*_?background[a-zA-Z0-9_]*", "R.drawable.drg_bg_black", s)
+                  for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
+                    s = re.sub(rf"({k}\s*\([^,]+,\s*R\.drawable\.[a-zA-Z0-9_]+\s*,\s*)R\.drawable\.[a-zA-Z0-9_]+", rf"\1R.drawable.drg_fg_{idx}", s)
+                  s = s.replace(", true)", ", false)")
+                  with open(p, "w", encoding="utf-8") as file: file.write(s)
                 if f == "build.gradle":
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
@@ -259,6 +280,7 @@ jobs:
                   jc = re.sub(r"\b(audioRecorder|audioRecord)\.read\s*\(", r"org.telegram.messenger.DrgPluginManager.readAudio(\1, ", jc)
                   jc = jc.replace("LocaleController.getString(R.string.AddAccount)", "org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(LocaleController.getString(R.string.AddAccount))")
                   jc = jc.replace("getString(R.string.AddAccount)", "org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(getString(R.string.AddAccount))")
+                  jc = jc.replace("LocaleController.getString(R.string.Page1Title)", '"DrgGram"')
                   if jc != orig:
                     with open(p, "w", encoding="utf-8") as file: file.write(jc)
               except Exception: pass
@@ -266,15 +288,7 @@ jobs:
             if os.path.exists(path):
               with open(path, "r", encoding="utf-8") as f: s = f.read()
               with open(path, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt, flags=re.S))
-          lic = "TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java"
-          if os.path.exists(lic):
-            with open(lic, "r", encoding="utf-8") as f: s = f.read()
-            s = re.sub(r"R\.drawable\.icon_\d*_?background_sa", "R.drawable.drg_bg_black", s)
-            for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
-              s = re.sub(rf"({k}\s*\([^,]+,\s*R\.drawable\.drg_bg_black\s*,\s*)R\.drawable\.[a-zA-Z0-9_]+", rf"\1R.drawable.drg_fg_{idx}", s)
-            s = s.replace(", true)", ", false)")
-            with open(lic, "w", encoding="utf-8") as f: f.write(s)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView), 80);")
+          patch("TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView), 50);")
           patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuSubItem.java", r"(public\s+void\s+setTextAndIcon\s*\(\s*CharSequence\s+(\w+)\s*,\s*int\s+(\w+)[^)]*\)\s*\{)", r'\1 if (\2 != null && \2.toString().contains("/100)")) { org.telegram.messenger.DrgPluginManager.attachAccountReorderHook(this, textView); }', 0)
           patch("TMessagesProj/src/main/java/org/telegram/messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
           patch("TMessagesProj/src/main/java/org/telegram/messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
@@ -283,7 +297,6 @@ jobs:
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(String\s+getStringInternal\s*\(\s*String\s+key[^)]*\)\s*\{)", r'\1 if ("AppName".equals(key) || "AppNameBeta".equals(key) || "Page1Title".equals(key)) return "DrgGram"; if ("DefaultIcon".equals(key)) return "DrgGram"; if ("VintageIcon".equals(key)) return "Cyan"; if ("AquaIcon".equals(key)) return "Sunset"; if ("PremiumIcon".equals(key)) return "Crimson"; if ("TurboIcon".equals(key)) return "Glitch"; if ("NoxIcon".equals(key)) return "Matrix"; if ("AddAccount".equals(key)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null);')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
@@ -328,8 +341,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.16.${{ github.run_number }}
-          name: "DrgGram v2.16 (Build #${{ github.run_number }})"
-          body: "Чорні фони всіх 6 іконок + Біле лого на чорному крузі при першому вході + Радар через formatUserStatus та getPeerDialogs!"
+          tag_name: v2.17.${{ github.run_number }}
+          name: "DrgGram v2.17 (Build #${{ github.run_number }})"
+          body: "Точна геометрія і розмір усіх 6 кастомних іконок на чорному фоні + заміна лого і тексту Telegram на DrgGram на стартовому екрані!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
