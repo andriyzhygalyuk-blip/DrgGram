@@ -45,7 +45,7 @@ jobs:
         run: |
           API_VER=$(grep '^ENV ANDROID_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36")
           BT_VER=$(grep '^ENV ANDROID_BUILD_TOOLS_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36.0.0")
-          NDK_VER=$(grep '^ENV ANDROID_NDK_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "27.2.12479018")
+          NDK_VER=$(grep '^ENV ANDROID_NDK_VERSION=' Dockerfile | cut -d= -f2 | tr -d ' \r' || echo "36.0.0")
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
           if [ "$FAST_BUILD" = "1" ]; then
             $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-${API_VER}" "build-tools;${BT_VER}"
@@ -59,12 +59,9 @@ jobs:
           package org.telegram.messenger;
           import android.app.*;
           import android.content.*;
-          import android.content.res.AssetFileDescriptor;
           import android.graphics.*;
           import android.graphics.drawable.*;
-          import android.media.AudioAttributes;
-          import android.media.AudioRecord;
-          import android.media.MediaPlayer;
+          import android.media.*;
           import android.os.*;
           import android.text.*;
           import android.text.style.ReplacementSpan;
@@ -76,6 +73,7 @@ jobs:
           import org.telegram.ui.ActionBar.ActionBarPopupWindow;
           import org.telegram.ui.ActionBar.AlertDialog;
           import org.telegram.ui.ActionBar.Theme;
+          import java.io.*;
           import java.nio.ByteBuffer;
           import java.nio.ByteOrder;
           import java.text.SimpleDateFormat;
@@ -98,7 +96,7 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void playFirstLaunchSound(){if(sndQueued||gsp().getBoolean("intro_wav_v4",false))return;sndQueued=true;H.postDelayed(()->{try{if(gsp().getBoolean("intro_wav_v4",false))return;AssetFileDescriptor afd=ApplicationLoader.applicationContext.getResources().openRawResourceFd(R.raw.drg_intro_sound);if(afd==null){sndQueued=false;return;}MediaPlayer mp=new MediaPlayer();if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(afd.getFileDescriptor(),afd.getStartOffset(),afd.getLength());afd.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}});mp.prepare();mp.start();gsp().edit().putBoolean("intro_wav_v4",true).apply();}catch(Throwable t){sndQueued=false;}},500);}
+          public static void playFirstLaunchSound(){if(sndQueued||gsp().getBoolean("intro_wav_v5",false))return;sndQueued=true;H.postDelayed(()->{new Thread(()->{try{Context c=ApplicationLoader.applicationContext;File f=new File(c.getCacheDir(),"drg_intro_play.wav");try(InputStream is=c.getResources().openRawResource(R.raw.drg_intro_sound);FileOutputStream fos=new FileOutputStream(f)){byte[] buf=new byte[8192];int r;while((r=is.read(buf))!=-1)fos.write(buf,0,r);}if(f.length()<=44){sndQueued=false;return;}gsp().edit().putBoolean("intro_wav_v5",true).apply();H.post(()->{try{FileInputStream fis=new FileInputStream(f);MediaPlayer mp=new MediaPlayer();if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(fis.getFD());fis.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}});mp.prepare();mp.start();}catch(Throwable e){new Thread(()->{try(FileInputStream in=new FileInputStream(f)){in.skip(44);int minB=AudioTrack.getMinBufferSize(44100,AudioFormat.CHANNEL_OUT_STEREO,AudioFormat.ENCODING_PCM_16BIT);AudioTrack at=new AudioTrack(AudioManager.STREAM_MUSIC,44100,AudioFormat.CHANNEL_OUT_STEREO,AudioFormat.ENCODING_PCM_16BIT,Math.max(minB,16384),AudioTrack.MODE_STREAM);at.play();byte[] b=new byte[8192];int n;while((n=in.read(b))>0)at.write(b,0,n);at.stop();at.release();}catch(Throwable ignored){}}).start();}});}catch(Throwable t){sndQueued=false;}}).start();},500);}
           public static void applyIntroLogoOverlay(final View root){playFirstLaunchSound();if(root==null)return;for(int delay:new int[]{30,120,350,700}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&cs.toString().contains("Telegram"))((TextView)v).setText(cs.toString().replace("Telegram","DrgGram"));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(145),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){playFirstLaunchSound();if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();try{for(int i=0;i<100;i++)if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}catch(Throwable ignored){}}
           private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
@@ -415,8 +413,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.31.${{ github.run_number }}
-          name: "DrgGram v2.31 (Build #${{ github.run_number }})"
-          body: "Нові ярлики DrgIcon1..6 без кешу лаунчера + перекодування DrgGram Intro.wav через ffmpeg!"
+          tag_name: v2.32.${{ github.run_number }}
+          name: "DrgGram v2.32 (Build #${{ github.run_number }})"
+          body: "Гарантований запуск інтро-звуку DrgGram Intro.wav через розпакування InputStream + AudioTrack fallback!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
