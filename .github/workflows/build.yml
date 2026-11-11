@@ -88,6 +88,7 @@ jobs:
           private static volatile long allowReadUntil=0;
           private static volatile TLObject cachedOfflineReq=null;
           private static boolean started=false,themeChecked=false,inChunkDel=false;
+          private static final boolean[] obsAccounts=new boolean[100];
           private static final float[] vRing=new float[8192];
           private static int vWrite=0;
           private static double vPhase=0.0,vRobPhase=0.0,vLp1=0.0,vLp2=0.0;
@@ -97,7 +98,7 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,150,400,900}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&"Telegram".equalsIgnoreCase(cs.toString().trim()))((TextView)v).setText("DrgGram");}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")){v.setAlpha(0f);ViewParent vp=v.getParent();if(vp instanceof ViewGroup){ViewGroup p=(ViewGroup)vp;if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_fg_1);iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);GradientDrawable bg=new GradientDrawable();bg.setShape(GradientDrawable.OVAL);bg.setColor(0xFF0C0C0E);bg.setStroke(AndroidUtilities.dp(1),0x28FFFFFF);iv.setBackground(bg);int sz=Math.max(AndroidUtilities.dp(150),v.getWidth());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER);p.addView(iv,lp);}}}}}catch(Throwable ignored){}},delay);}}
+          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,120,350}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&("Telegram".equalsIgnoreCase(cs.toString().trim())||cs.toString().contains("DrgGram"))){((TextView)v).setText("DrgGram");}}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_fg_1);iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);int sz=Math.max(AndroidUtilities.dp(130),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams){lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;}p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();if(!themeChecked){themeChecked=true;try{if(!gsp().getBoolean("def_dark_set",false)){gsp().edit().putBoolean("def_dark_set",true).apply();Theme.ThemeInfo ti=Theme.getTheme("Night");if(ti!=null)Theme.applyTheme(ti,true);}}catch(Throwable ignored){}}try{for(int i=0;i<100;i++){if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}if(ctx!=null&&UserConfig.getInstance(lastAccount).isClientActivated()&&!gsp().getBoolean("cloud_theme_li7_v6",false)){H.postDelayed(()->{try{if(!gsp().getBoolean("cloud_theme_li7_v6",false)){autoApplyUntil=System.currentTimeMillis()+15000L;Browser.openUrl(ctx,"https://t.me/addtheme/LI7QcIKVHvlhNHp7");}}catch(Throwable ignored){}},1600);}}catch(Throwable ignored){}}
           public static void autoConfirmThemePreview(final View root){if(System.currentTimeMillis()>autoApplyUntil||root==null)return;for(int d:new int[]{150,400,800,1400}){H.postDelayed(()->{try{if(System.currentTimeMillis()<=autoApplyUntil&&clickApplyInPreview(root)){autoApplyUntil=0;gsp().edit().putBoolean("cloud_theme_li7_v6",true).apply();}}catch(Throwable ignored){}},d);}}
           private static boolean clickApplyInPreview(View root){int screenH=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().heightPixels;int screenW=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().widthPixels;List<View> all=new ArrayList<>();collectViews(root,all);for(View v:all){if(v instanceof TextView&&v.getVisibility()==View.VISIBLE){CharSequence cs=((TextView)v).getText();String s=cs!=null?cs.toString().toLowerCase(Locale.ROOT).trim():"";if(s.contains("застосувати")||s.contains("применить")||s.contains("apply")||s.contains("встановити")||s.contains("установить")){View target=v;while(target!=null&&!target.isClickable()&&target.getParent() instanceof View)target=(View)target.getParent();if(target!=null&&target.isClickable()){target.performClick();return true;}v.performClick();return true;}}}for(int i=all.size()-1;i>=0;i--){View v=all.get(i);if(v.isClickable()&&v.hasOnClickListeners()&&v.getVisibility()==View.VISIBLE){int[] loc=new int[2];v.getLocationOnScreen(loc);int cx=loc[0]+v.getWidth()/2;if(loc[1]>=screenH*2/3&&cx>=screenW/2){v.performClick();return true;}}}return false;}
@@ -111,7 +112,7 @@ jobs:
           public static int getActiveAccountsCount(){return Math.max(1,getSortedActiveAccounts().size());}
           public static String formatAddAccountLabel(String base){if(base!=null&&base.contains("/100)"))return base;String b=(base!=null&&!base.isEmpty())?base:tr("Додати акаунт","Добавить аккаунт","Add Account");return "("+getActiveAccountsCount()+"/100) "+b;}
           public static Drawable makeGridForeground(final View host){return new Drawable(){private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);@Override public void draw(Canvas c){int h=host.getHeight(),w=host.getWidth();if(h<AndroidUtilities.dp(32)||w<=0)return;p.setColor(0xCCFFFFFF);float cx=w-AndroidUtilities.dp(20);float cy=h/2f;int dx=AndroidUtilities.dp(3),dy=AndroidUtilities.dp(5);float r=AndroidUtilities.dp(1.8f);for(int ry=-1;ry<=1;ry++){c.drawCircle(cx-dx,cy+ry*dy,r,p);c.drawCircle(cx+dx,cy+ry*dy,r,p);}}@Override public void setAlpha(int a){}@Override public void setColorFilter(ColorFilter cf){}@Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}};}
-          public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23){ch.setForeground(null);}}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if("drg_grid_v2".equals(row.getTag()))continue;row.setTag("drg_grid_v2");row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v);int targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
+          public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23){ch.setForeground(null);}}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if("drg_grid_v2".equals(row.getTag()))continue;row.setTag("drg_grid_v2");row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);};if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v);int targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
           private static void saveNewOrderFromPopup(ViewGroup vg,List<View> origViews,List<Integer> origAccs){try{int baseTime=100000;int rank=0;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);int origIdx=origViews.indexOf(ch);if(origIdx>=0&&origIdx<origAccs.size()){int acc=origAccs.get(origIdx);UserConfig.getInstance(acc).loginTime=baseTime+(rank*100);UserConfig.getInstance(acc).saveConfig(false);rank++;}}}catch(Throwable ignored){}}
           public static CharSequence prependSvgTrashSpan(CharSequence timeStr){if(timeStr==null)return null;if(timeStr instanceof Spanned&&timeStr.toString().startsWith("  "))return timeStr;SpannableStringBuilder ssb=new SpannableStringBuilder("  ");ssb.append(timeStr);ssb.setSpan(new ReplacementSpan(){@Override public int getSize(Paint p,CharSequence t,int s,int e,Paint.FontMetricsInt fm){return AndroidUtilities.dp(14);}@Override public void draw(Canvas c,CharSequence t,int s,int e,float x,int top,int y,int bottom,Paint p){try{Drawable d=ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.msg_delete).mutate();d.setColorFilter(new PorterDuffColorFilter(p.getColor(),PorterDuff.Mode.SRC_IN));int sz=AndroidUtilities.dp(11);int dy=top+(bottom-top-sz)/2;d.setBounds((int)x,dy,(int)x+sz,dy+sz);d.draw(c);}catch(Throwable ignored){}}},0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return ssb;}
           public static GradientDrawable makeLiquidGlass(int radDp){GradientDrawable g=new GradientDrawable();g.setColor(0xE618222D);g.setCornerRadius(AndroidUtilities.dp(radDp));g.setStroke(Math.max(1,AndroidUtilities.dp(1)),0x33FFFFFF);return g;}
@@ -152,7 +153,7 @@ jobs:
           public static boolean isMessageDeleted(int id){if(id<=0)return false;return sp(lastAccount).getStringSet("del_ids",Collections.emptySet()).contains(String.valueOf(id));}
           public static void notify(String t,String msg){toast(t+": "+msg);try{Context c=ApplicationLoader.applicationContext;NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CH,"DrgGram Alerts",NotificationManager.IMPORTANCE_HIGH));Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(c,CH):new Notification.Builder(c);b.setSmallIcon(R.drawable.drg_fg_1).setContentTitle(t).setContentText(msg).setAutoCancel(true);nm.notify(new Random().nextInt(900000)+1000,b.build());}catch(Throwable ignored){}}
           public static void ensureForegroundService(Service s){try{startWatcher();}catch(Throwable ignored){}}
-          public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{final int a=lastAccount;autoJoinChannel(a);forceOfflineNow(a);Set<String> w=watched(a);if(isAntiDelete(a)||!w.isEmpty()){ConnectionsManager.getInstance(a).setAppPaused(false,false);ConnectionsManager.getInstance(a).resumeNetworkMaybe();}if(!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();TLRPC.TL_messages_getPeerDialogs pd=new TLRPC.TL_messages_getPeerDialogs();for(String s:w){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);long ah=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=ah;r.id.add(tu);TLRPC.TL_inputDialogPeer idp=new TLRPC.TL_inputDialogPeer();TLRPC.TL_inputPeerUser ipu=new TLRPC.TL_inputPeerUser();ipu.user_id=uid;ipu.access_hash=ah;idp.peer=ipu;pd.peers.add(idp);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{try{if(res!=null){java.lang.reflect.Field f=res.getClass().getField("objects");List<?> list=(List<?>)f.get(res);if(list!=null)for(Object o:list)if(o instanceof TLRPC.User)checkOnline(a,(TLRPC.User)o);}}catch(Throwable ignored){}});if(!pd.peers.isEmpty())ConnectionsManager.getInstance(a).sendRequest(pd,(res,err)->{try{if(res!=null){java.lang.reflect.Field f=res.getClass().getField("users");ArrayList<TLRPC.User> us=(ArrayList<TLRPC.User>)f.get(res);if(us!=null)onUsersPut(a,us,false);}}catch(Throwable ignored){}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},1500);}
+          public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{final int a=lastAccount;autoJoinChannel(a);forceOfflineNow(a);if(a>=0&&a<100&&!obsAccounts[a]){obsAccounts[a]=true;NotificationCenter.getInstance(a).addObserver((id,account,args)->{if(id==NotificationCenter.userStatusUpdated){for(String s:watched(account)){try{TLRPC.User u=MessagesController.getInstance(account).getUser(Long.parseLong(s));if(u!=null)checkOnline(account,u);}catch(Throwable ignored){}}}},NotificationCenter.userStatusUpdated);}Set<String> w=watched(a);if(isAntiDelete(a)||!w.isEmpty()){ConnectionsManager.getInstance(a).setAppPaused(false,false);ConnectionsManager.getInstance(a).resumeNetworkMaybe();}if(!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:w){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);long ah=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=ah;r.id.add(tu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++){Object o=vec.objects.get(i);if(o instanceof TLRPC.User)checkOnline(a,(TLRPC.User)o);}}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},1500);}
           private static String userLabel(TLRPC.User u,long fallbackId){if(u==null)return sp(lastAccount).getString("wname_"+fallbackId,"ID "+fallbackId);String fn=(u.first_name!=null?u.first_name:"")+((u.last_name!=null&&!u.last_name.isEmpty())?(" "+u.last_name):"");if(u.username!=null&&!u.username.isEmpty())fn+=" (@"+u.username+")";if(u.phone!=null&&!u.phone.isEmpty())fn+=" [+"+u.phone+"]";return fn.trim().isEmpty()?("ID "+u.id):fn.trim();}
           private static boolean isStatusOnline(int a,TLRPC.UserStatus st){if(st==null)return false;String sn=st.getClass().getSimpleName().toLowerCase(Locale.US);if(sn.contains("online"))return true;if(sn.contains("offline"))return false;try{return st.expires>ConnectionsManager.getInstance(a).getCurrentTime();}catch(Throwable t){return false;}}
           public static void onUserPut(int a,TLRPC.User u,boolean fromCache){if(u!=null)checkOnline(a,u);}
@@ -183,77 +184,55 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-      - name: Generate Exact 6 Custom Icons, Replace All Foregrounds/Backgrounds & Hooks
+      - name: Process Uploaded Icons & Patch Intro & Radar Hooks
         run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy
-          from PIL import Image, ImageDraw, ImageChops, ImageFilter
-          def make_drg(st, sz=432, fg_only=False):
-            S = 1024
-            im = Image.new("RGBA", (S, S), (0, 0, 0, 0) if fg_only else (12, 12, 14, 255))
-            raw = [(0.135,0.455),(0.860,0.165),(0.735,0.840),(0.345,0.565),(0.640,0.425),(0.525,0.595),(0.625,0.655),(0.715,0.305),(0.265,0.520)]
-            pad = 225 if fg_only else 160
-            box = S - 2 * pad
-            pts = [(int(pad + x * box), int(pad + y * box)) for x, y in raw]
-            sm = Image.new("L", (S, S), 0)
-            sd = ImageDraw.Draw(sm)
-            sd.polygon(pts, fill=255)
-            for idx, r in [(0,22),(1,38),(2,42),(3,36),(4,14),(8,18)]:
-              cx, cy = pts[idx]
-              sd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=255)
-            sm = sm.filter(ImageFilter.GaussianBlur(8)).point(lambda p: 255 if p > 118 else 0).filter(ImageFilter.GaussianBlur(2))
-            fg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-            fd = ImageDraw.Draw(fg)
-            if st == "white": fd.rectangle([0,0,S,S], fill=(248,248,252,255))
-            elif st == "cyan": fd.rectangle([0,0,S,S], fill=(58,220,212,255))
-            elif st == "sunset":
-              for y in range(S): fd.line([(0,y),(S,y)], fill=(int(225+30*(y/S)),int(45+175*(y/S)),int(115-95*(y/S)),255))
-            elif st == "crimson": fd.rectangle([0,0,S,S], fill=(252,10,36,255))
-            elif st == "glitch":
-              im.paste((255,238,0,255), (0,0), ImageChops.offset(sm, -12, -7))
-              im.paste((0,240,255,255), (0,0), ImageChops.offset(sm, 12, 7))
-              fd.rectangle([0,0,S,S], fill=(250,250,252,255))
-            elif st == "matrix":
-              for y in range(0, S, 18):
-                for x in range(0, S, 18): fd.ellipse([x+2,y+2,x+14,y+14], fill=(250,250,250,255))
-            im.paste(fg, (0, 0), sm)
-            return im.resize((sz, sz), Image.LANCZOS)
-          styles = ["white","cyan","sunset","crimson","glitch","matrix"]
+          from PIL import Image
+          def find_user_img(keys):
+            for f in os.listdir("."):
+              clean = f.lower().replace(" ", "").replace("_", "")
+              for k in keys:
+                if clean == k or clean == "drggram" + k:
+                  return f
+            return None
+          f_map = {1:["drggrammain.png","main.png"],2:["drggramcyan.png","cyan.png"],3:["drggramsunset.png","sunset.png"],4:["drggramcrimson.png","crimson.png"],5:["drggramglitch.png","glitch.png"],6:["drggramvintage.png","vintage.png","matrix.png"]}
+          raw_imgs = {}
+          for idx, keys in f_map.items():
+            fn = find_user_img(keys)
+            if fn and os.path.exists(fn):
+              try: raw_imgs[idx] = Image.open(fn).convert("RGBA")
+              except Exception: pass
+          if 1 not in raw_imgs and len(raw_imgs) > 0:
+            raw_imgs[1] = next(iter(raw_imgs.values()))
           res_xx = "TMessagesProj/src/main/res/drawable-xxhdpi"
           os.makedirs(res_xx, exist_ok=True)
           Image.new("RGBA", (432, 432), (12, 12, 14, 255)).save(os.path.join(res_xx, "drg_bg_black.png"))
-          for idx, st in enumerate(styles, start=1):
-            make_drg(st, 432, True).save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
-          fg_map = {"icon_foreground_sa.png":"white","icon_2_foreground_sa.png":"cyan","icon_3_foreground_sa.png":"sunset","icon_4_foreground_sa.png":"crimson","icon_5_foreground_sa.png":"glitch","icon_6_foreground_sa.png":"matrix"}
-          for fn, st in fg_map.items():
-            make_drg(st, 432, True).save(os.path.join(res_xx, fn))
+          for idx in range(1, 7):
+            src = raw_imgs.get(idx, raw_imgs.get(1))
+            if src:
+              fg = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+              s_img = src.resize((324, 324), Image.LANCZOS)
+              fg.paste(s_img, (54, 54), s_img)
+              fg.save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
           black_vec = '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FF0C0C0E" android:pathData="M0,0h108v108h-108z"/></vector>'
           for root, _, files in os.walk("."):
             for f in files:
               p = os.path.join(root, f)
               try:
-                if f.startswith("icon_") and f.endswith("foreground_sa.xml"):
-                  os.remove(p); continue
+                if f.startswith("icon_") and f.endswith("foreground_sa.xml"): os.remove(p); continue
                 if ("icon_" in f or "ic_launcher" in f) and "background" in f and f.endswith(".xml"):
-                  with open(p, "w", encoding="utf-8") as file: file.write(black_vec)
-                  continue
-                if f in fg_map:
-                  make_drg(fg_map[f], Image.open(p).width, True).save(p)
-                elif f in ["ic_launcher_drg.png","ic_launcher.png","ic_launcher_round.png","intro_tg_plane.png"]:
-                  make_drg("white", Image.open(p).width, False).save(p)
-                elif f == "notification.png":
-                  make_drg("white", Image.open(p).width, True).save(p)
+                  with open(p, "w", encoding="utf-8") as file: file.write(black_vec); continue
+                if f in ["ic_launcher.png","ic_launcher_round.png","ic_launcher_drg.png","intro_tg_plane.png"] and 1 in raw_imgs:
+                  w = Image.open(p).width
+                  raw_imgs[1].resize((w, w), Image.LANCZOS).save(p)
+                elif f == "notification.png" and 1 in raw_imgs:
+                  w = Image.open(p).width
+                  raw_imgs[1].resize((w, w), Image.LANCZOS).save(p)
                 elif "background" in f and f.endswith(".png") and ("icon_" in f or "ic_launcher" in f):
                   w = Image.open(p).width
                   Image.new("RGBA", (w, w), (12, 12, 14, 255)).save(p)
-                if f == "LauncherIconController.java":
-                  with open(p, "r", encoding="utf-8") as file: s = file.read()
-                  s = re.sub(r"R\.drawable\.icon_\d*_?background[a-zA-Z0-9_]*", "R.drawable.drg_bg_black", s)
-                  for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
-                    s = re.sub(rf"({k}\s*\([^,]+,\s*R\.drawable\.[a-zA-Z0-9_]+\s*,\s*)R\.drawable\.[a-zA-Z0-9_]+", rf"\1R.drawable.drg_fg_{idx}", s)
-                  s = s.replace(", true)", ", false)")
-                  with open(p, "w", encoding="utf-8") as file: file.write(s)
                 if f == "build.gradle":
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
@@ -288,6 +267,14 @@ jobs:
             if os.path.exists(path):
               with open(path, "r", encoding="utf-8") as f: s = f.read()
               with open(path, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt, flags=re.S))
+          lic = "TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java"
+          if os.path.exists(lic):
+            with open(lic, "r", encoding="utf-8") as f: s = f.read()
+            s = re.sub(r"R\.drawable\.icon_\d*_?background[a-zA-Z0-9_]*", "R.drawable.drg_bg_black", s)
+            for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
+              s = re.sub(rf"({k}\s*\([^,]+,\s*R\.drawable\.[a-zA-Z0-9_]+\s*,\s*)R\.drawable\.[a-zA-Z0-9_]+", rf"\1R.drawable.drg_fg_{idx}", s)
+            s = s.replace(", true)", ", false)")
+            with open(lic, "w", encoding="utf-8") as f: f.write(s)
           patch("TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView), 50);")
           patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuSubItem.java", r"(public\s+void\s+setTextAndIcon\s*\(\s*CharSequence\s+(\w+)\s*,\s*int\s+(\w+)[^)]*\)\s*\{)", r'\1 if (\2 != null && \2.toString().contains("/100)")) { org.telegram.messenger.DrgPluginManager.attachAccountReorderHook(this, textView); }', 0)
           patch("TMessagesProj/src/main/java/org/telegram/messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
@@ -298,6 +285,7 @@ jobs:
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
           patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
+          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*String\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram"; if ("DefaultIcon".equals(\2)) return "DrgGram"; if ("VintageIcon".equals(\2)) return "Cyan"; if ("AquaIcon".equals(\2)) return "Sunset"; if ("PremiumIcon".equals(\2)) return "Crimson"; if ("TurboIcon".equals(\2)) return "Glitch"; if ("NoxIcon".equals(\2)) return "Matrix"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null);', 0)
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
           patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
@@ -341,8 +329,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.17.${{ github.run_number }}
-          name: "DrgGram v2.17 (Build #${{ github.run_number }})"
-          body: "Точна геометрія і розмір усіх 6 кастомних іконок на чорному фоні + заміна лого і тексту Telegram на DrgGram на стартовому екрані!"
+          tag_name: v2.18.${{ github.run_number }}
+          name: "DrgGram v2.18 (Build #${{ github.run_number }})"
+          body: "Всі 6 твоїх оригінальних іконок на чистому чорному фоні + Ідеально центроване лого на стартовому екрані з написом DrgGram + Радар через NotificationCenter!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
