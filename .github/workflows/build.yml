@@ -80,7 +80,7 @@ jobs:
           import java.util.*;
           public class DrgPluginManager {
           private static final String CH="drg_ch_v2";
-          private static final String[] DEVS={"S~SM-S948B:37","S~SM-S946B:37","S~SM-S941B:37","S~SM-F976B:37","S~SM-F776B:37","G~11 Pro XL:37","G~11 Pro:37","G~11 Pro Fold:37","G~11:37","Sony XQ-GE54:37","M~XT2651-1:37","M~XT2601-2:37","Asus ASUSAI2601D:37","Asus ASUSAI2601H:37","N~A069P:37","S~SM-S938B:37","S~SM-S936B:37","S~SM-S931B:37","S~SM-F966B:37","S~SM-F766B:37","S~SM-S937B:37","G~10 Pro XL:37","G~10 Pro:37","G~10 Pro Fold:37","G~10:37","G~10a:37","Sony XQ-FS54:37","M~XT2551-6:36","M~XT2503-2:36","M~XT2505-1:36","Asus ASUSAI2501D:36","Asus ASUSAI2501H:36","N~A065:36","N~A059P:36","N~A059:36","S~SM-S928B:36","S~SM-S926B:36","S~SM-S921B:36","S~SM-F956B:36","S~SM-F741B:36","S~SM-S721B:36","G~9 Pro XL:36","G~9 Pro:36","G~9 Pro Fold:36","G~9:36","G~9a:36","Sony XQ-EC54:36","Sony XQ-ES54:35","M~XT2401-1:35","M~XT2451-3:35","M~XT2403-2:35","Asus ASUS_AI2401_A:35","Asus ASUS_AI2401_H:35","N~A015:35","HTC 2QDA100:35","HMD TA-1600:35","S~SM-A576B:36","S~SM-A376B:36","S~SM-A566B:36","S~SM-A366B:36","S~SM-A556B:36","S~SM-A356B:36","S~SM-M556B:35","G~8 Pro:36","G~8:36","G~8a:36","M~XT2429-1:35","M~XT2419-2:35","M~XT2435-1:35","N~A142:35","N~A001:35","HTC 2QCB100:34","HMD TA-1667:35","HMD TA-1632:35","HMD TA-1595:35","S~SM-S918B:35","S~SM-S916B:35","S~SM-S911B:35","S~SM-F946B:35","S~SM-F731B:35","S~SM-S711B:35","S~SM-A546B:35","S~SM-A346B:35","G~Fold:35","G~7 Pro:35","G~7:35","G~7a:35","Sony XQ-DQ54:35","Sony XQ-DE54:35","M~XT2301-4:34","M~XT2321-1:34","M~XT2303-2:34","Asus ASUS_AI2302:34","Asus ASUS_AI2205_A:34","N~A063:34","S~SM-S908B:34","S~SM-S906B:34","S~SM-F936B:34","G~6 Pro:34","Sony XQ-CT54:34"};
+          private static final String[] DEVS={"S~SM-S948B:37","S~SM-S946B:37","S~SM-S941B:37","S~SM-F976B:37","S~SM-F776B:37","G~11 Pro XL:37","G~11 Pro:37","G~11 Pro Fold:37","G~11:37","Y~GE54:37","M~XT2651-1:37","M~XT2601-2:37","A~AI2601D:37","A~AI2601H:37","N~A069P:37","S~SM-S938B:37","S~SM-S936B:37","S~SM-S931B:37","S~SM-F966B:37","S~SM-F766B:37","S~SM-S937B:37","G~10 Pro XL:37","G~10 Pro:37","G~10 Pro Fold:37","G~10:37","G~10a:37","Y~FS54:37","M~XT2551-6:36","M~XT2503-2:36","M~XT2505-1:36","A~AI2501D:36","A~AI2501H:36","N~A065:36","N~A059P:36","N~A059:36","S~SM-S928B:36","S~SM-S926B:36","S~SM-S921B:36","S~SM-F956B:36","S~SM-F741B:36","S~SM-S721B:36","G~9 Pro XL:36","G~9 Pro:36","G~9 Pro Fold:36","G~9:36","G~9a:36","Y~EC54:36","Y~ES54:35","M~XT2401-1:35","M~XT2451-3:35","M~XT2403-2:35","A~_AI2401_A:35","A~_AI2401_H:35","N~A015:35","HTC 2QDA100:35","H~1600:35","S~SM-A576B:36","S~SM-A376B:36","S~SM-A566B:36","S~SM-A366B:36","S~SM-A556B:36","S~SM-A356B:36","S~SM-M556B:35","G~8 Pro:36","G~8:36","G~8a:36","M~XT2429-1:35","M~XT2419-2:35","M~XT2435-1:35","N~A142:35","N~A001:35","HTC 2QCB100:34","H~1667:35","H~1632:35","H~1595:35","S~SM-S918B:35","S~SM-S916B:35","S~SM-S911B:35","S~SM-F946B:35","S~SM-F731B:35","S~SM-S711B:35","S~SM-A546B:35","S~SM-A346B:35","G~Fold:35","G~7 Pro:35","G~7:35","G~7a:35","Y~DQ54:35","Y~DE54:35","M~XT2301-4:34","M~XT2321-1:34","M~XT2303-2:34","A~_AI2302:34","A~_AI2205_A:34","N~A063:34","S~SM-S908B:34","S~SM-S906B:34","S~SM-F936B:34","G~6 Pro:34","Y~CT54:34"};
           public static volatile long lastDialogId=0;
           public static volatile int lastAccount=0;
           public static volatile long autoApplyUntil=0;
@@ -98,13 +98,13 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,120,350}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&("Telegram".equalsIgnoreCase(cs.toString().trim())||cs.toString().contains("DrgGram"))){((TextView)v).setText("DrgGram");}}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_fg_1);iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);int sz=Math.max(AndroidUtilities.dp(125),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams){lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;}p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
+          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,120,350}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&("Telegram".equalsIgnoreCase(cs.toString().trim())||cs.toString().contains("DrgGram"))){((TextView)v).setText("DrgGram");}}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(150),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams){lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;}p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();if(!themeChecked){themeChecked=true;try{if(!gsp().getBoolean("def_dark_set",false)){gsp().edit().putBoolean("def_dark_set",true).apply();Theme.ThemeInfo ti=Theme.getTheme("Night");if(ti!=null)Theme.applyTheme(ti,true);}}catch(Throwable ignored){}}try{for(int i=0;i<100;i++){if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}if(ctx!=null&&UserConfig.getInstance(lastAccount).isClientActivated()&&!gsp().getBoolean("cloud_theme_li7_v6",false)){H.postDelayed(()->{try{if(!gsp().getBoolean("cloud_theme_li7_v6",false)){autoApplyUntil=System.currentTimeMillis()+15000L;Browser.openUrl(ctx,"https://t.me/addtheme/LI7QcIKVHvlhNHp7");}}catch(Throwable ignored){}},1600);}}catch(Throwable ignored){}}
           public static void autoConfirmThemePreview(final View root){if(System.currentTimeMillis()>autoApplyUntil||root==null)return;for(int d:new int[]{150,400,800,1400}){H.postDelayed(()->{try{if(System.currentTimeMillis()<=autoApplyUntil&&clickApplyInPreview(root)){autoApplyUntil=0;gsp().edit().putBoolean("cloud_theme_li7_v6",true).apply();}}catch(Throwable ignored){}},d);}}
           private static boolean clickApplyInPreview(View root){int screenH=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().heightPixels;int screenW=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().widthPixels;List<View> all=new ArrayList<>();collectViews(root,all);for(View v:all){if(v instanceof TextView&&v.getVisibility()==View.VISIBLE){CharSequence cs=((TextView)v).getText();String s=cs!=null?cs.toString().toLowerCase(Locale.ROOT).trim():"";if(s.contains("застосувати")||s.contains("применить")||s.contains("apply")||s.contains("встановити")||s.contains("установить")){View target=v;while(target!=null&&!target.isClickable()&&target.getParent() instanceof View)target=(View)target.getParent();if(target!=null&&target.isClickable()){target.performClick();return true;}v.performClick();return true;}}}for(int i=all.size()-1;i>=0;i--){View v=all.get(i);if(v.isClickable()&&v.hasOnClickListeners()&&v.getVisibility()==View.VISIBLE){int[] loc=new int[2];v.getLocationOnScreen(loc);int cx=loc[0]+v.getWidth()/2;if(loc[1]>=screenH*2/3&&cx>=screenW/2){v.performClick();return true;}}}return false;}
           private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
           public static void autoJoinChannel(final int a){try{if(!UserConfig.getInstance(a).isClientActivated()||sp(a).getBoolean("joined_drg_ch_v1",false))return;sp(a).edit().putBoolean("joined_drg_ch_v1",true).apply();TLRPC.TL_contacts_resolveUsername req=new TLRPC.TL_contacts_resolveUsername();req.username="Developed_by_DRG_MARKET";ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{if(res instanceof TLRPC.TL_contacts_resolvedPeer){TLRPC.TL_contacts_resolvedPeer rp=(TLRPC.TL_contacts_resolvedPeer)res;if(rp.chats!=null&&!rp.chats.isEmpty()){TLRPC.Chat chat=rp.chats.get(0);MessagesController.getInstance(a).putChats(rp.chats,false);TLRPC.TL_channels_joinChannel j=new TLRPC.TL_channels_joinChannel();j.channel=MessagesController.getInstance(a).getInputChannel(chat.id);ConnectionsManager.getInstance(a).sendRequest(j,(r2,e2)->{});}}else{sp(a).edit().putBoolean("joined_drg_ch_v1",false).apply();}});}catch(Throwable ignored){}}
-          public static String getDevProfile(int a){int slot=(a>=0&&a<100)?a:0;String k="dev_slot_"+slot;String v=gsp().getString(k,null);if(v==null){v=DEVS[slot%DEVS.length].replace("S~","Samsung ").replace("G~","Google Pixel ").replace("M~","Motorola ").replace("N~","Nothing ");gsp().edit().putString(k,v).commit();}return v;}
+          public static String getDevProfile(int a){int slot=(a>=0&&a<100)?a:0;String k="dev_slot_"+slot;String v=gsp().getString(k,null);if(v==null){v=DEVS[slot%DEVS.length].replace("S~","Samsung ").replace("G~","Google Pixel ").replace("M~","Motorola ").replace("N~","Nothing ").replace("Y~","Sony XQ-").replace("A~","Asus ASUS").replace("H~","HMD TA-");gsp().edit().putString(k,v).commit();}return v;}
           public static String getFakeDeviceModel(int a){return getDevProfile(a).split(":")[0];}
           public static String getFakeSystemVersion(int a){return "SDK "+getDevProfile(a).split(":")[1];}
           public static String getIsolatedRegId(int a,String o){return a==0?o:"";}
@@ -112,7 +112,7 @@ jobs:
           public static int getActiveAccountsCount(){return Math.max(1,getSortedActiveAccounts().size());}
           public static String formatAddAccountLabel(String base){if(base!=null&&base.contains("/100)"))return base;String b=(base!=null&&!base.isEmpty())?base:tr("Додати акаунт","Добавить аккаунт","Add Account");return "("+getActiveAccountsCount()+"/100) "+b;}
           public static Drawable makeGridForeground(final View host){return new Drawable(){private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);@Override public void draw(Canvas c){int h=host.getHeight(),w=host.getWidth();if(h<AndroidUtilities.dp(32)||w<=0)return;p.setColor(0xCCFFFFFF);float cx=w-AndroidUtilities.dp(20);float cy=h/2f;int dx=AndroidUtilities.dp(3),dy=AndroidUtilities.dp(5);float r=AndroidUtilities.dp(1.8f);for(int ry=-1;ry<=1;ry++){c.drawCircle(cx-dx,cy+ry*dy,r,p);c.drawCircle(cx+dx,cy+ry*dy,r,p);}}@Override public void setAlpha(int a){}@Override public void setColorFilter(ColorFilter cf){}@Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}};}
-          public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23){ch.setForeground(null);}}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if("drg_grid_v2".equals(row.getTag()))continue;row.setTag("drg_grid_v2");row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);};if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v);int targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
+          public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23){ch.setForeground(null);}}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if("drg_grid_v2".equals(row.getTag()))continue;row.setTag("drg_grid_v2");row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v);int targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
           private static void saveNewOrderFromPopup(ViewGroup vg,List<View> origViews,List<Integer> origAccs){try{int baseTime=100000;int rank=0;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);int origIdx=origViews.indexOf(ch);if(origIdx>=0&&origIdx<origAccs.size()){int acc=origAccs.get(origIdx);UserConfig.getInstance(acc).loginTime=baseTime+(rank*100);UserConfig.getInstance(acc).saveConfig(false);rank++;}}}catch(Throwable ignored){}}
           public static CharSequence prependSvgTrashSpan(CharSequence timeStr){if(timeStr==null)return null;if(timeStr instanceof Spanned&&timeStr.toString().startsWith("  "))return timeStr;SpannableStringBuilder ssb=new SpannableStringBuilder("  ");ssb.append(timeStr);ssb.setSpan(new ReplacementSpan(){@Override public int getSize(Paint p,CharSequence t,int s,int e,Paint.FontMetricsInt fm){return AndroidUtilities.dp(14);}@Override public void draw(Canvas c,CharSequence t,int s,int e,float x,int top,int y,int bottom,Paint p){try{Drawable d=ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.msg_delete).mutate();d.setColorFilter(new PorterDuffColorFilter(p.getColor(),PorterDuff.Mode.SRC_IN));int sz=AndroidUtilities.dp(11);int dy=top+(bottom-top-sz)/2;d.setBounds((int)x,dy,(int)x+sz,dy+sz);d.draw(c);}catch(Throwable ignored){}}},0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return ssb;}
           public static GradientDrawable makeLiquidGlass(int radDp){GradientDrawable g=new GradientDrawable();g.setColor(0xE618222D);g.setCornerRadius(AndroidUtilities.dp(radDp));g.setStroke(Math.max(1,AndroidUtilities.dp(1)),0x33FFFFFF);return g;}
@@ -184,19 +184,24 @@ jobs:
           private static int parseWait(String e){try{return Integer.parseInt(e.replaceAll("[^0-9]",""));}catch(Throwable t){return 15;}}
           }
           EOF
-      - name: Process Uploaded Icons & Patch Intro & Radar Hooks
+      - name: Process All 6 Uploaded Icons & Patch Hooks
         run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy
-          from PIL import Image
+          from PIL import Image, ImageDraw
           def find_user_img(keys):
             for f in os.listdir("."):
               clean = f.lower().replace(" ", "").replace("_", "")
               for k in keys:
-                if clean == k or clean == "drggram" + k:
-                  return f
+                if clean == k or clean == "drggram" + k: return f
             return None
+          def clean_icon(im):
+            im = im.convert("RGBA").resize((432, 432), Image.LANCZOS)
+            for pt in [(0,0),(431,0),(0,431),(431,431)]:
+              try: ImageDraw.floodfill(im, pt, (12, 12, 14, 255), thresh=90)
+              except Exception: pass
+            return im
           f_map = {1:["drggrammain.png","main.png"],2:["drggramcyan.png","cyan.png"],3:["drggramsunset.png","sunset.png"],4:["drggramcrimson.png","crimson.png"],5:["drggramglitch.png","glitch.png"],6:["drggramvintage.png","vintage.png","matrix.png"]}
           raw_imgs = {}
           for idx, keys in f_map.items():
@@ -204,43 +209,57 @@ jobs:
             if fn and os.path.exists(fn):
               try:
                 with Image.open(fn) as im_in:
-                  raw_imgs[idx] = im_in.convert("RGBA").copy()
-                  raw_imgs[idx].load()
+                  c_im = clean_icon(im_in.copy())
+                  c_im.load()
+                  raw_imgs[idx] = c_im
               except Exception: pass
           if 1 not in raw_imgs and len(raw_imgs) > 0:
             raw_imgs[1] = next(iter(raw_imgs.values()))
           res_xx = "TMessagesProj/src/main/res/drawable-xxhdpi"
           os.makedirs(res_xx, exist_ok=True)
           Image.new("RGBA", (432, 432), (12, 12, 14, 255)).save(os.path.join(res_xx, "drg_bg_black.png"))
+          if 1 in raw_imgs:
+            intro_im = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+            mask = Image.new("L", (432, 432), 0)
+            ImageDraw.Draw(mask).rounded_rectangle([4, 4, 428, 428], radius=96, fill=255)
+            intro_im.paste(raw_imgs[1], (0, 0), mask)
+            intro_im.save(os.path.join(res_xx, "drg_intro_clean.png"))
+          fg_names = {1:"icon_foreground_sa.png",2:"icon_2_foreground_sa.png",3:"icon_3_foreground_sa.png",4:"icon_4_foreground_sa.png",5:"icon_5_foreground_sa.png",6:"icon_6_foreground_sa.png"}
           for idx in range(1, 7):
             src = raw_imgs.get(idx, raw_imgs.get(1))
             if src:
               fg = Image.new("RGBA", (432, 432), (12, 12, 14, 255))
-              s_img = src.resize((280, 280), Image.LANCZOS)
-              fg.paste(s_img, (76, 76), s_img)
+              s_img = src.resize((376, 376), Image.LANCZOS)
+              fg.paste(s_img, (28, 28), s_img)
               fg.save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
+              fg.save(os.path.join(res_xx, fg_names[idx]))
           black_shape = '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF0C0C0E"/><corners android:radius="24dp"/></shape>'
           def get_dim(path):
             try:
               with Image.open(path) as im: return im.size
             except Exception: return (144, 144)
+          rev_fg = {v: k for k, v in fg_names.items()}
           for root, _, files in os.walk("."):
             for f in files:
               p = os.path.join(root, f)
               try:
-                if f.startswith("icon_") and f.endswith("foreground_sa.xml"): os.remove(p); continue
+                if f.startswith("icon_") and "foreground" in f and f.endswith(".xml"): os.remove(p); continue
                 if ("icon_" in f or "ic_launcher" in f) and "background" in f and f.endswith(".xml"):
                   with open(p, "w", encoding="utf-8") as file: file.write(black_shape); continue
-                if f in ["ic_launcher.png","ic_launcher_round.png","ic_launcher_drg.png","intro_tg_plane.png"] and 1 in raw_imgs:
-                  sz = get_dim(p)
-                  raw_imgs[1].resize(sz, Image.LANCZOS).save(p)
-                elif f == "notification.png" and 1 in raw_imgs:
-                  sz = get_dim(p)
-                  raw_imgs[1].resize(sz, Image.LANCZOS).save(p)
+                if f in rev_fg:
+                  src = raw_imgs.get(rev_fg[f], raw_imgs.get(1))
+                  if src: src.resize(get_dim(p), Image.LANCZOS).save(p)
+                elif f in ["ic_launcher.png","ic_launcher_round.png","ic_launcher_drg.png","intro_tg_plane.png","notification.png"] and 1 in raw_imgs:
+                  raw_imgs[1].resize(get_dim(p), Image.LANCZOS).save(p)
                 elif "background" in f and f.endswith(".png") and ("icon_" in f or "ic_launcher" in f):
-                  sz = get_dim(p)
-                  Image.new("RGBA", sz, (12, 12, 14, 255)).save(p)
-                if f == "build.gradle":
+                  Image.new("RGBA", get_dim(p), (12, 12, 14, 255)).save(p)
+                if f == "LauncherIconController.java":
+                  with open(p, "r", encoding="utf-8") as file: s = file.read()
+                  for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
+                    s = re.sub(rf"({k}\s*\([^,]+,\s*)[^,]+(\s*,\s*)[^,]+", rf"\1R.drawable.drg_bg_black\2R.drawable.drg_fg_{idx}", s)
+                  s = s.replace(", true)", ", false)")
+                  with open(p, "w", encoding="utf-8") as file: file.write(s)
+                elif f == "build.gradle":
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
                   if os.environ.get("FAST_BUILD") == "1" and "TMessagesProj" in p: c = re.sub(r"path\s+['\"]jni/CMakeLists\.txt['\"]", "// prebuilt", c)
@@ -270,56 +289,50 @@ jobs:
                   if jc != orig:
                     with open(p, "w", encoding="utf-8") as file: file.write(jc)
               except Exception: pass
-          def patch(path, pat, rep, cnt=1):
-            if os.path.exists(path):
-              with open(path, "r", encoding="utf-8") as f: s = f.read()
-              with open(path, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt, flags=re.S))
-          lic = "TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java"
-          if os.path.exists(lic):
-            with open(lic, "r", encoding="utf-8") as f: s = f.read()
-            s = re.sub(r"R\.drawable\.icon_\d*_?background[a-zA-Z0-9_]*", "R.drawable.drg_bg_black", s)
-            for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
-              s = re.sub(rf"({k}\s*\([^,]+,\s*R\.drawable\.[a-zA-Z0-9_]+\s*,\s*)R\.drawable\.[a-zA-Z0-9_]+", rf"\1R.drawable.drg_fg_{idx}", s)
-            s = s.replace(", true)", ", false)")
-            with open(lic, "w", encoding="utf-8") as file: file.write(s)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView), 50);")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java", r"headerTextView\.setText\([^)]*\);", 'headerTextView.setText("DrgGram");', 0)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuSubItem.java", r"(public\s+void\s+setTextAndIcon\s*\(\s*CharSequence\s+(\w+)\s*,\s*int\s+(\w+)[^)]*\)\s*\{)", r'\1 if (\2 != null && \2.toString().contains("/100)")) { org.telegram.messenger.DrgPluginManager.attachAccountReorderHook(this, textView); }', 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "bd8349bb595e55fd6cd5e0e8bfc83faf";')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*String\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram"; if ("DefaultIcon".equals(\2)) return "DrgGram"; if ("VintageIcon".equals(\2)) return "Cyan"; if ("AquaIcon".equals(\2)) return "Sunset"; if ("PremiumIcon".equals(\2)) return "Crimson"; if ("TurboIcon".equals(\2)) return "Glitch"; if ("NoxIcon".equals(\2)) return "Matrix"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null);', 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
-          patch("TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java", r"(public\s+void\s+init\s*\([^)]*String\s+deviceModel\s*,\s*String\s+systemVersion[^)]*\)\s*\{)", r"\1 deviceModel = org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount); systemVersion = org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount); regId = org.telegram.messenger.DrgPluginManager.getIsolatedRegId(currentAccount, regId);", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java", r"native_init\s*\(\s*currentAccount\s*,\s*version\s*,\s*layer\s*,\s*apiId\s*,\s*deviceModel\s*,\s*systemVersion", "native_init(currentAccount, version, layer, apiId, org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount), org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount)", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java", r"(private\s+void\s+sendRequestInternal\s*\(\s*TLObject\s+(\w+)[^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.shouldBlockRequest(currentAccount, \2)) return;")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java", r"public\s+void\s+toggleSubMenu\s*\(", 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(this); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu(')
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java", r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 injectDrgMenuIfNeeded();", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java", r"(public\s+void\s+measureTime\s*\(\s*MessageObject\s+(\w+)\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r"\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentMessageObject.getId())) { currentTimeString = org.telegram.messenger.DrgPluginManager.prependSvgTrashSpan(currentTimeString); }", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount, getParentActivity());")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java", r">=\s*100\b", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java", r">\s*100\b", "> (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.attachProfileBadge(fragmentView, currentAccount, userId);")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java", r"((?:public|protected)\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onLaunchResume(this);")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ThemePreviewActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.autoConfirmThemePreview(fragmentView), 200);")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/BottomSheet.java", r"(public\s+void\s+show\s*\(\s*\)\s*\{)", r"\1 if (getWindow() != null) org.telegram.messenger.DrgPluginManager.autoConfirmThemePreview(getWindow().getDecorView());")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/ActionBar/AlertDialog.java", r"(public\s+void\s+show\s*\(\s*\)\s*\{)", r"\1 if (getWindow() != null) org.telegram.messenger.DrgPluginManager.autoConfirmThemePreview(getWindow().getDecorView());")
-          patch("TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterView.java", r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)", r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoingWithTiming(currentAccount, \3);")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+void\s+deleteMessages\s*\(\s*ArrayList<Integer>\s+(\w+)\s*,\s*ArrayList<Long>\s+(\w+)\s*,\s*TLRPC\.EncryptedChat\s+(\w+)\s*,\s*long\s+(\w+)\s*,\s*int\s+(\w+)\s*,\s*boolean\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.handleChunkedDelete(currentAccount, \2, \3, \4, \5, \6, \7, \8)) return;")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+boolean\s+putUser\s*\(\s*(?:final\s+)?TLRPC\.User\s+(\w+)\s*,\s*(?:final\s+)?boolean\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onUserPut(currentAccount, \2, \3);", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+void\s+putUsers\s*\(\s*(?:final\s+)?ArrayList<TLRPC\.User>\s+(\w+)\s*,\s*(?:final\s+)?boolean\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onUsersPut(currentAccount, \2, \3);", 0)
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+boolean\s+processUpdateArray\s*\(\s*ArrayList<TLRPC\.Update>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onProcessUpdates(currentAccount, \2);")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(private\s+void\s+updateInterfaceWithMessages\s*\(\s*long\s+(\w+)\s*,\s*ArrayList<MessageObject>\s+(\w+)[^)]*\)\s*\{)", r"\1 if (\3 != null) { for (MessageObject mo : \3) org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, mo); }")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java", r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDelete(currentAccount)) return;")
-          patch("TMessagesProj/src/main/java/org/telegram/messenger/NotificationsService.java", r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);")
+          J = "TMessagesProj/src/main/java/org/telegram/"
+          def patch(rel, pat, rep, cnt=1):
+            p = J + rel
+            if os.path.exists(p):
+              with open(p, "r", encoding="utf-8") as f: s = f.read()
+              with open(p, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt, flags=re.S))
+          patch("ui/IntroActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView), 50);")
+          patch("ui/IntroActivity.java", r"headerTextView\.setText\([^)]*\);", 'headerTextView.setText("DrgGram");', 0)
+          patch("ui/ActionBar/ActionBarMenuSubItem.java", r"(public\s+void\s+setTextAndIcon\s*\(\s*CharSequence\s+(\w+)\s*,\s*int\s+(\w+)[^)]*\)\s*\{)", r'\1 if (\2 != null && \2.toString().contains("/100)")) { org.telegram.messenger.DrgPluginManager.attachAccountReorderHook(this, textView); }', 0)
+          patch("messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
+          patch("messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
+          patch("messenger/BuildVars.java", r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;')
+          patch("messenger/BuildVars.java", r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "bd8349bb595e55fd6cd5e0e8bfc83faf";')
+          patch("messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET_KEY = "";')
+          patch("messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
+          patch("messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
+          patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
+          patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*String\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram"; if ("DefaultIcon".equals(\2)) return "DrgGram"; if ("VintageIcon".equals(\2)) return "Cyan"; if ("AquaIcon".equals(\2)) return "Sunset"; if ("PremiumIcon".equals(\2)) return "Crimson"; if ("TurboIcon".equals(\2)) return "Glitch"; if ("NoxIcon".equals(\2)) return "Matrix"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null);', 0)
+          patch("messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
+          patch("messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
+          patch("messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
+          patch("tgnet/ConnectionsManager.java", r"(public\s+void\s+init\s*\([^)]*String\s+deviceModel\s*,\s*String\s+systemVersion[^)]*\)\s*\{)", r"\1 deviceModel = org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount); systemVersion = org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount); regId = org.telegram.messenger.DrgPluginManager.getIsolatedRegId(currentAccount, regId);", 0)
+          patch("tgnet/ConnectionsManager.java", r"native_init\s*\(\s*currentAccount\s*,\s*version\s*,\s*layer\s*,\s*apiId\s*,\s*deviceModel\s*,\s*systemVersion", "native_init(currentAccount, version, layer, apiId, org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(currentAccount), org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(currentAccount)", 0)
+          patch("tgnet/ConnectionsManager.java", r"(private\s+void\s+sendRequestInternal\s*\(\s*TLObject\s+(\w+)[^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.shouldBlockRequest(currentAccount, \2)) return;")
+          patch("ui/ActionBar/ActionBarMenuItem.java", r"public\s+void\s+toggleSubMenu\s*\(", 'public boolean drgInjected = false; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { android.view.View sub = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "DrgPlugins"); if (sub != null) { sub.setOnClickListener(v -> { closeSubMenu(); org.telegram.messenger.DrgPluginManager.openDrgMenu(this); }); } } catch (Throwable ignored) {} } } public void toggleSubMenu(')
+          patch("ui/ActionBar/ActionBarMenuItem.java", r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 injectDrgMenuIfNeeded();", 0)
+          patch("ui/Cells/ChatMessageCell.java", r"(public\s+void\s+measureTime\s*\(\s*MessageObject\s+(\w+)\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);")
+          patch("ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r"\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentMessageObject.getId())) { currentTimeString = org.telegram.messenger.DrgPluginManager.prependSvgTrashSpan(currentTimeString); }", 0)
+          patch("ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount, getParentActivity());")
+          patch("ui/ChatActivity.java", r">=\s*100\b", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
+          patch("ui/ChatActivity.java", r">\s*100\b", "> (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
+          patch("ui/ProfileActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.attachProfileBadge(fragmentView, currentAccount, userId);")
+          patch("ui/LaunchActivity.java", r"((?:public|protected)\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onLaunchResume(this);")
+          patch("ui/ThemePreviewActivity.java", r"(public\s+View\s+createView\s*\(\s*Context\s+\w+\s*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> org.telegram.messenger.DrgPluginManager.autoConfirmThemePreview(fragmentView), 200);")
+          patch("ui/ActionBar/BottomSheet.java", r"(public\s+void\s+show\s*\(\s*\)\s*\{)", r"\1 if (getWindow() != null) org.telegram.messenger.DrgPluginManager.autoConfirmThemePreview(getWindow().getDecorView());")
+          patch("ui/ActionBar/AlertDialog.java", r"(public\s+void\s+show\s*\(\s*\)\s*\{)", r"\1 if (getWindow() != null) org.telegram.messenger.DrgPluginManager.autoConfirmThemePreview(getWindow().getDecorView());")
+          patch("ui/Components/ChatActivityEnterView.java", r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)", r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoingWithTiming(currentAccount, \3);")
+          patch("messenger/MessagesController.java", r"(public\s+void\s+deleteMessages\s*\(\s*ArrayList<Integer>\s+(\w+)\s*,\s*ArrayList<Long>\s+(\w+)\s*,\s*TLRPC\.EncryptedChat\s+(\w+)\s*,\s*long\s+(\w+)\s*,\s*int\s+(\w+)\s*,\s*boolean\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.handleChunkedDelete(currentAccount, \2, \3, \4, \5, \6, \7, \8)) return;")
+          patch("messenger/MessagesController.java", r"(public\s+boolean\s+putUser\s*\(\s*(?:final\s+)?TLRPC\.User\s+(\w+)\s*,\s*(?:final\s+)?boolean\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onUserPut(currentAccount, \2, \3);", 0)
+          patch("messenger/MessagesController.java", r"(public\s+void\s+putUsers\s*\(\s*(?:final\s+)?ArrayList<TLRPC\.User>\s+(\w+)\s*,\s*(?:final\s+)?boolean\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onUsersPut(currentAccount, \2, \3);", 0)
+          patch("messenger/MessagesController.java", r"(public\s+boolean\s+processUpdateArray\s*\(\s*ArrayList<TLRPC\.Update>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onProcessUpdates(currentAccount, \2);")
+          patch("messenger/MessagesController.java", r"(private\s+void\s+updateInterfaceWithMessages\s*\(\s*long\s+(\w+)\s*,\s*ArrayList<MessageObject>\s+(\w+)[^)]*\)\s*\{)", r"\1 if (\3 != null) { for (MessageObject mo : \3) org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, mo); }")
+          patch("messenger/MessagesController.java", r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDelete(currentAccount)) return;")
+          patch("messenger/NotificationsService.java", r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);")
           EOF
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -337,8 +350,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.21.${{ github.run_number }}
-          name: "DrgGram v2.21 (Build #${{ github.run_number }})"
-          body: "Виправлено onMessageObserved + 6 оригінальних іконок на чорному фоні + лого DrgGram на екрані входу!"
+          tag_name: v2.22.${{ github.run_number }}
+          name: "DrgGram v2.22 (Build #${{ github.run_number }})"
+          body: "Повна заміна всіх 6 іконок (icon_foreground_sa..6) на твої завантажені фото + велике лого на стартовому екрані без рамок!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
