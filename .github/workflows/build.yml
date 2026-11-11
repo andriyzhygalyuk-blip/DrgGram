@@ -59,8 +59,10 @@ jobs:
           package org.telegram.messenger;
           import android.app.*;
           import android.content.*;
+          import android.content.res.AssetFileDescriptor;
           import android.graphics.*;
           import android.graphics.drawable.*;
+          import android.media.AudioAttributes;
           import android.media.AudioRecord;
           import android.media.MediaPlayer;
           import android.os.*;
@@ -96,7 +98,7 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void playFirstLaunchSound(){if(sndQueued||gsp().getBoolean("intro_wav_v3",false))return;sndQueued=true;H.postDelayed(()->{try{if(gsp().getBoolean("intro_wav_v3",false))return;MediaPlayer mp=MediaPlayer.create(ApplicationLoader.applicationContext,R.raw.drg_intro_sound);if(mp!=null){gsp().edit().putBoolean("intro_wav_v3",true).apply();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}});mp.start();}else sndQueued=false;}catch(Throwable t){sndQueued=false;}},600);}
+          public static void playFirstLaunchSound(){if(sndQueued||gsp().getBoolean("intro_wav_v4",false))return;sndQueued=true;H.postDelayed(()->{try{if(gsp().getBoolean("intro_wav_v4",false))return;AssetFileDescriptor afd=ApplicationLoader.applicationContext.getResources().openRawResourceFd(R.raw.drg_intro_sound);if(afd==null){sndQueued=false;return;}MediaPlayer mp=new MediaPlayer();if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(afd.getFileDescriptor(),afd.getStartOffset(),afd.getLength());afd.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}});mp.prepare();mp.start();gsp().edit().putBoolean("intro_wav_v4",true).apply();}catch(Throwable t){sndQueued=false;}},500);}
           public static void applyIntroLogoOverlay(final View root){playFirstLaunchSound();if(root==null)return;for(int delay:new int[]{30,120,350,700}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&cs.toString().contains("Telegram"))((TextView)v).setText(cs.toString().replace("Telegram","DrgGram"));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(145),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){playFirstLaunchSound();if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();try{for(int i=0;i<100;i++)if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}catch(Throwable ignored){}}
           private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
@@ -193,10 +195,10 @@ jobs:
         run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
-          import os, re, json, copy, shutil, wave
+          import os, re, json, copy, shutil, subprocess, wave
           from PIL import Image, ImageDraw
           run_no = int(os.environ.get("RUN_NO", "1") or "1")
-          new_vc = str(900000 + run_no)
+          new_vc = str(950000 + run_no)
           if os.path.exists("gradle.properties"):
             with open("gradle.properties", "r", encoding="utf-8") as f: gp = f.read()
             gp = re.sub(r"APP_VERSION_CODE\s*=\s*\d+", f"APP_VERSION_CODE={new_vc}", gp)
@@ -204,9 +206,16 @@ jobs:
           raw_dir = "TMessagesProj/src/main/res/raw"
           os.makedirs(raw_dir, exist_ok=True)
           wav_dst = os.path.join(raw_dir, "drg_intro_sound.wav")
-          wav_src = next((f for f in os.listdir(".") if f.lower().endswith(".wav")), None)
-          if wav_src: shutil.copyfile(wav_src, wav_dst)
-          elif not os.path.exists(wav_dst):
+          wav_src = None
+          for r_d, _, f_l in os.walk("."):
+            if "TMessagesProj" in r_d or ".git" in r_d: continue
+            for fn in f_l:
+              if fn.lower().endswith((".wav", ".mp3", ".m4a", ".ogg")): wav_src = os.path.join(r_d, fn); break
+            if wav_src: break
+          if wav_src:
+            try: subprocess.run(["ffmpeg", "-y", "-i", wav_src, "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", wav_dst], check=True)
+            except Exception: shutil.copyfile(wav_src, wav_dst)
+          if not os.path.exists(wav_dst):
             with wave.open(wav_dst, "w") as wf:
               wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(8000); wf.writeframes(b"\x00\x00" * 800)
           cyr = str.maketrans("сСіІїЇоОаАеЕуУрРмМхХкКвВнНтТ", "cciiiiooaaeeyyppmmxxkkbbhhtt")
@@ -308,7 +317,7 @@ jobs:
                 if f == "LauncherIconController.java":
                   with open(p, "r", encoding="utf-8") as file: s = file.read()
                   for k, idx in ctrl_slots.items():
-                    s = re.sub(rf"({k}\s*\(\s*\"[^\"]+\"\s*,\s*)[^,]+(\s*,\s*)[^,]+", rf"\1R.drawable.drg_bg_black\2R.drawable.drg_fg_{idx}", s)
+                    s = re.sub(rf"{k}\s*\(\s*\"[^\"]+\"\s*,\s*[^,]+\s*,\s*[^,]+", f'{k}("DrgIcon{idx}", R.drawable.drg_bg_black, R.drawable.drg_fg_{idx}', s)
                   s = s.replace(", true)", ", false)")
                   with open(p, "w", encoding="utf-8") as file: file.write(s)
                 elif f == "build.gradle":
@@ -328,10 +337,9 @@ jobs:
                   with open(p, "r", encoding="utf-8") as file: m = file.read()
                   m = m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram.")
                   for al, idx in man_slots.items():
-                    m = m.replace(f"org.telegram.messenger.drggram.{al}", f"org.telegram.messenger.{al}")
-                    def fix_al(mt, i=idx, name=al):
+                    def fix_al(mt, i=idx):
                       t = re.sub(r'\s*android:(roundIcon|icon|name)="[^"]*"', '', mt.group(0))
-                      return t[:-1] + f' android:name="org.telegram.messenger.{name}" android:icon="@mipmap/drg_ic_{i}" android:roundIcon="@mipmap/drg_ic_{i}">'
+                      return t[:-1] + f' android:name="org.telegram.messenger.DrgIcon{i}" android:icon="@mipmap/drg_ic_{i}" android:roundIcon="@mipmap/drg_ic_{i}">'
                     m = re.sub(rf"<activity-alias[^>]*{al}[^>]*>", fix_al, m, flags=re.S)
                   with open(p, "w", encoding="utf-8") as file: file.write(m)
                 elif f == "strings.xml":
@@ -407,8 +415,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.30.${{ github.run_number }}
-          name: "DrgGram v2.30 (Build #${{ github.run_number }})"
-          body: "Чисті заокруглені іконки + скидання кешу ярликів через versionCode + текст DrgGram на всіх 5 слайдах інтро!"
+          tag_name: v2.31.${{ github.run_number }}
+          name: "DrgGram v2.31 (Build #${{ github.run_number }})"
+          body: "Нові ярлики DrgIcon1..6 без кешу лаунчера + перекодування DrgGram Intro.wav через ffmpeg!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
