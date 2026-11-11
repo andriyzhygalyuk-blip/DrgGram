@@ -98,7 +98,7 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,120,350}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&("Telegram".equalsIgnoreCase(cs.toString().trim())||cs.toString().contains("DrgGram"))){((TextView)v).setText("DrgGram");}}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(150),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams){lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;}p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
+          public static void applyIntroLogoOverlay(final View root){if(root==null)return;for(int delay:new int[]{30,120,350}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&("Telegram".equalsIgnoreCase(cs.toString().trim())||cs.toString().contains("DrgGram"))){((TextView)v).setText("DrgGram");}}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(145),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams){lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;}p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();if(!themeChecked){themeChecked=true;try{if(!gsp().getBoolean("def_dark_set",false)){gsp().edit().putBoolean("def_dark_set",true).apply();Theme.ThemeInfo ti=Theme.getTheme("Night");if(ti!=null)Theme.applyTheme(ti,true);}}catch(Throwable ignored){}}try{for(int i=0;i<100;i++){if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}if(ctx!=null&&UserConfig.getInstance(lastAccount).isClientActivated()&&!gsp().getBoolean("cloud_theme_li7_v6",false)){H.postDelayed(()->{try{if(!gsp().getBoolean("cloud_theme_li7_v6",false)){autoApplyUntil=System.currentTimeMillis()+15000L;Browser.openUrl(ctx,"https://t.me/addtheme/LI7QcIKVHvlhNHp7");}}catch(Throwable ignored){}},1600);}}catch(Throwable ignored){}}
           public static void autoConfirmThemePreview(final View root){if(System.currentTimeMillis()>autoApplyUntil||root==null)return;for(int d:new int[]{150,400,800,1400}){H.postDelayed(()->{try{if(System.currentTimeMillis()<=autoApplyUntil&&clickApplyInPreview(root)){autoApplyUntil=0;gsp().edit().putBoolean("cloud_theme_li7_v6",true).apply();}}catch(Throwable ignored){}},d);}}
           private static boolean clickApplyInPreview(View root){int screenH=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().heightPixels;int screenW=ApplicationLoader.applicationContext.getResources().getDisplayMetrics().widthPixels;List<View> all=new ArrayList<>();collectViews(root,all);for(View v:all){if(v instanceof TextView&&v.getVisibility()==View.VISIBLE){CharSequence cs=((TextView)v).getText();String s=cs!=null?cs.toString().toLowerCase(Locale.ROOT).trim():"";if(s.contains("застосувати")||s.contains("применить")||s.contains("apply")||s.contains("встановити")||s.contains("установить")){View target=v;while(target!=null&&!target.isClickable()&&target.getParent() instanceof View)target=(View)target.getParent();if(target!=null&&target.isClickable()){target.performClick();return true;}v.performClick();return true;}}}for(int i=all.size()-1;i>=0;i--){View v=all.get(i);if(v.isClickable()&&v.hasOnClickListeners()&&v.getVisibility()==View.VISIBLE){int[] loc=new int[2];v.getLocationOnScreen(loc);int cx=loc[0]+v.getWidth()/2;if(loc[1]>=screenH*2/3&&cx>=screenW/2){v.performClick();return true;}}}return false;}
@@ -196,44 +196,53 @@ jobs:
               for k in keys:
                 if clean == k or clean == "drggram" + k: return f
             return None
-          def clean_icon(im):
+          def extract_arrow_transparent(im):
             im = im.convert("RGBA").resize((432, 432), Image.LANCZOS)
-            for pt in [(0,0),(431,0),(0,431),(431,431)]:
-              try: ImageDraw.floodfill(im, pt, (12, 12, 14, 255), thresh=90)
-              except Exception: pass
-            return im
+            mask = Image.new("L", (432, 432), 0)
+            ImageDraw.Draw(mask).rounded_rectangle([46, 46, 386, 386], radius=80, fill=255)
+            px = im.load()
+            mx = mask.load()
+            for y in range(432):
+              for x in range(432):
+                if mx[x, y] == 0:
+                  px[x, y] = (0, 0, 0, 0)
+                else:
+                  r, g, b, a = px[x, y]
+                  br = max(r, g, b)
+                  if br <= 38: px[x, y] = (0, 0, 0, 0)
+                  elif br < 72: px[x, y] = (r, g, b, int((br - 38) * 255 / 34))
+            out = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+            scaled = im.resize((330, 330), Image.LANCZOS)
+            out.paste(scaled, (51, 51), scaled)
+            return out
           f_map = {1:["drggrammain.png","main.png"],2:["drggramcyan.png","cyan.png"],3:["drggramsunset.png","sunset.png"],4:["drggramcrimson.png","crimson.png"],5:["drggramglitch.png","glitch.png"],6:["drggramvintage.png","vintage.png","matrix.png"]}
-          raw_imgs = {}
+          arrows = {}
           for idx, keys in f_map.items():
             fn = find_user_img(keys)
             if fn and os.path.exists(fn):
               try:
                 with Image.open(fn) as im_in:
-                  c_im = clean_icon(im_in.copy())
-                  c_im.load()
-                  raw_imgs[idx] = c_im
+                  ar = extract_arrow_transparent(im_in.copy())
+                  ar.load()
+                  arrows[idx] = ar
               except Exception: pass
-          if 1 not in raw_imgs and len(raw_imgs) > 0:
-            raw_imgs[1] = next(iter(raw_imgs.values()))
+          if 1 not in arrows and len(arrows) > 0:
+            arrows[1] = next(iter(arrows.values()))
           res_xx = "TMessagesProj/src/main/res/drawable-xxhdpi"
           os.makedirs(res_xx, exist_ok=True)
-          Image.new("RGBA", (432, 432), (12, 12, 14, 255)).save(os.path.join(res_xx, "drg_bg_black.png"))
-          if 1 in raw_imgs:
+          Image.new("RGBA", (432, 432), (10, 10, 12, 255)).save(os.path.join(res_xx, "drg_bg_black.png"))
+          if 1 in arrows:
             intro_im = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
-            mask = Image.new("L", (432, 432), 0)
-            ImageDraw.Draw(mask).rounded_rectangle([4, 4, 428, 428], radius=96, fill=255)
-            intro_im.paste(raw_imgs[1], (0, 0), mask)
+            ImageDraw.Draw(intro_im).rounded_rectangle([16, 16, 416, 416], radius=96, fill=(10, 10, 12, 255))
+            intro_im.paste(arrows[1], (0, 0), arrows[1])
             intro_im.save(os.path.join(res_xx, "drg_intro_clean.png"))
           fg_names = {1:"icon_foreground_sa.png",2:"icon_2_foreground_sa.png",3:"icon_3_foreground_sa.png",4:"icon_4_foreground_sa.png",5:"icon_5_foreground_sa.png",6:"icon_6_foreground_sa.png"}
           for idx in range(1, 7):
-            src = raw_imgs.get(idx, raw_imgs.get(1))
-            if src:
-              fg = Image.new("RGBA", (432, 432), (12, 12, 14, 255))
-              s_img = src.resize((376, 376), Image.LANCZOS)
-              fg.paste(s_img, (28, 28), s_img)
-              fg.save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
-              fg.save(os.path.join(res_xx, fg_names[idx]))
-          black_shape = '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF0C0C0E"/><corners android:radius="24dp"/></shape>'
+            ar = arrows.get(idx, arrows.get(1))
+            if ar:
+              ar.save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
+              ar.save(os.path.join(res_xx, fg_names[idx]))
+          black_shape = '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF0A0A0C"/><corners android:radius="24dp"/></shape>'
           def get_dim(path):
             try:
               with Image.open(path) as im: return im.size
@@ -247,12 +256,18 @@ jobs:
                 if ("icon_" in f or "ic_launcher" in f) and "background" in f and f.endswith(".xml"):
                   with open(p, "w", encoding="utf-8") as file: file.write(black_shape); continue
                 if f in rev_fg:
-                  src = raw_imgs.get(rev_fg[f], raw_imgs.get(1))
-                  if src: src.resize(get_dim(p), Image.LANCZOS).save(p)
-                elif f in ["ic_launcher.png","ic_launcher_round.png","ic_launcher_drg.png","intro_tg_plane.png","notification.png"] and 1 in raw_imgs:
-                  raw_imgs[1].resize(get_dim(p), Image.LANCZOS).save(p)
+                  ar = arrows.get(rev_fg[f], arrows.get(1))
+                  if ar: ar.resize(get_dim(p), Image.LANCZOS).save(p)
+                elif f in ["ic_launcher.png","ic_launcher_round.png","ic_launcher_drg.png","intro_tg_plane.png"] and 1 in arrows:
+                  sz = get_dim(p)
+                  full_ic = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+                  ImageDraw.Draw(full_ic).rounded_rectangle([16, 16, 416, 416], radius=96, fill=(10, 10, 12, 255))
+                  full_ic.paste(arrows[1], (0, 0), arrows[1])
+                  full_ic.resize(sz, Image.LANCZOS).save(p)
+                elif f == "notification.png" and 1 in arrows:
+                  arrows[1].resize(get_dim(p), Image.LANCZOS).save(p)
                 elif "background" in f and f.endswith(".png") and ("icon_" in f or "ic_launcher" in f):
-                  Image.new("RGBA", get_dim(p), (12, 12, 14, 255)).save(p)
+                  Image.new("RGBA", get_dim(p), (10, 10, 12, 255)).save(p)
                 if f == "LauncherIconController.java":
                   with open(p, "r", encoding="utf-8") as file: s = file.read()
                   for idx, k in enumerate(["DEFAULT","VINTAGE","AQUA","PREMIUM","TURBO","NOX"], start=1):
@@ -350,8 +365,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.22.${{ github.run_number }}
-          name: "DrgGram v2.22 (Build #${{ github.run_number }})"
-          body: "Повна заміна всіх 6 іконок (icon_foreground_sa..6) на твої завантажені фото + велике лого на стартовому екрані без рамок!"
+          tag_name: v2.23.${{ github.run_number }}
+          name: "DrgGram v2.23 (Build #${{ github.run_number }})"
+          body: "Ідеально чисті іконки на прозорій підкладці (без квадратних кутів і білих ліній) + зменшений на 20% розмір!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
