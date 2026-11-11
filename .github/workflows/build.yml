@@ -410,16 +410,11 @@ jobs:
         run: |
           gradle --parallel :TMessagesProj_AppStandalone:assembleAfatStandalone
           find . -path "*/outputs/apk/*" -name "*.apk" -exec cp {} ./DrgGram.apk \;
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DrgGram-APK
-          path: ./DrgGram.apk
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.36.${{ github.run_number }}
-          name: "DrgGram v2.36 (Build #${{ github.run_number }})"
-          body: "Жорстка ізоляція з'єднань: активний тільки поточний вибраний акаунт, інші 99 у глибокому сні!"
+          tag_name: v2.37.${{ github.run_number }}
+          name: "DrgGram v2.37 (Build #${{ github.run_number }})"
+          body: "Пряма публікація в Releases без зависання Artifacts + активне з'єднання тільки на поточному акаунті!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
