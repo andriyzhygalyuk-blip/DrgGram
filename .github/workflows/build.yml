@@ -96,8 +96,8 @@ jobs:
           private static final Handler H=new Handler(Looper.getMainLooper());
           private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
           private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-          public static void playFirstLaunchSound(){if(sndQueued||gsp().getBoolean("intro_wav_v2",false))return;sndQueued=true;H.postDelayed(()->{try{if(gsp().getBoolean("intro_wav_v2",false))return;MediaPlayer mp=MediaPlayer.create(ApplicationLoader.applicationContext,R.raw.drg_intro_sound);if(mp!=null){gsp().edit().putBoolean("intro_wav_v2",true).apply();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}});mp.start();}else sndQueued=false;}catch(Throwable t){sndQueued=false;}},600);}
-          public static void applyIntroLogoOverlay(final View root){playFirstLaunchSound();if(root==null)return;for(int delay:new int[]{30,120,350}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&("Telegram".equalsIgnoreCase(cs.toString().trim())||cs.toString().contains("DrgGram"))){((TextView)v).setText("DrgGram");}}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(145),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
+          public static void playFirstLaunchSound(){if(sndQueued||gsp().getBoolean("intro_wav_v3",false))return;sndQueued=true;H.postDelayed(()->{try{if(gsp().getBoolean("intro_wav_v3",false))return;MediaPlayer mp=MediaPlayer.create(ApplicationLoader.applicationContext,R.raw.drg_intro_sound);if(mp!=null){gsp().edit().putBoolean("intro_wav_v3",true).apply();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}});mp.start();}else sndQueued=false;}catch(Throwable t){sndQueued=false;}},600);}
+          public static void applyIntroLogoOverlay(final View root){playFirstLaunchSound();if(root==null)return;for(int delay:new int[]{30,120,350,700}){H.postDelayed(()->{try{List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){CharSequence cs=((TextView)v).getText();if(cs!=null&&cs.toString().contains("Telegram"))((TextView)v).setText(cs.toString().replace("Telegram","DrgGram"));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=Math.max(AndroidUtilities.dp(145),animV.getHeight());FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}},delay);}}
           public static void onLaunchResume(final Context ctx){playFirstLaunchSound();if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();try{for(int i=0;i<100;i++)if(UserConfig.getInstance(i).isClientActivated())autoJoinChannel(i);}catch(Throwable ignored){}}
           private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
           public static void autoJoinChannel(final int a){try{if(!UserConfig.getInstance(a).isClientActivated()||sp(a).getBoolean("joined_drggram_v2",false))return;sp(a).edit().putBoolean("joined_drggram_v2",true).apply();TLRPC.TL_contacts_resolveUsername req=new TLRPC.TL_contacts_resolveUsername();req.username="DrgGram";ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{if(res instanceof TLRPC.TL_contacts_resolvedPeer){TLRPC.TL_contacts_resolvedPeer rp=(TLRPC.TL_contacts_resolvedPeer)res;if(rp.chats!=null&&!rp.chats.isEmpty()){TLRPC.Chat chat=rp.chats.get(0);MessagesController.getInstance(a).putChats(rp.chats,false);TLRPC.TL_channels_joinChannel j=new TLRPC.TL_channels_joinChannel();j.channel=MessagesController.getInstance(a).getInputChannel(chat.id);ConnectionsManager.getInstance(a).sendRequest(j,(r2,e2)->{});}}else sp(a).edit().putBoolean("joined_drggram_v2",false).apply();});}catch(Throwable ignored){}}
@@ -188,11 +188,19 @@ jobs:
           }
           EOF
       - name: Sync All 6 Icons, Intro Audio & Patches
+        env:
+          RUN_NO: ${{ github.run_number }}
         run: |
           pip3 install Pillow --quiet || sudo apt-get install -y python3-pil
           python3 << 'EOF'
           import os, re, json, copy, shutil, wave
           from PIL import Image, ImageDraw
+          run_no = int(os.environ.get("RUN_NO", "1") or "1")
+          new_vc = str(900000 + run_no)
+          if os.path.exists("gradle.properties"):
+            with open("gradle.properties", "r", encoding="utf-8") as f: gp = f.read()
+            gp = re.sub(r"APP_VERSION_CODE\s*=\s*\d+", f"APP_VERSION_CODE={new_vc}", gp)
+            with open("gradle.properties", "w", encoding="utf-8") as f: f.write(gp)
           raw_dir = "TMessagesProj/src/main/res/raw"
           os.makedirs(raw_dir, exist_ok=True)
           wav_dst = os.path.join(raw_dir, "drg_intro_sound.wav")
@@ -210,11 +218,22 @@ jobs:
               for k in keys:
                 if clean == k or clean == "drggram" + k or k.replace(".png","") in clean: return f
             return None
-          def prep_icon(im):
+          def extract_arrow_transparent(im):
             im = im.convert("RGBA").resize((432, 432), Image.LANCZOS)
-            out = Image.new("RGBA", (432, 432), (10, 10, 12, 255))
-            scaled = im.resize((340, 340), Image.LANCZOS)
-            out.paste(scaled, (46, 46), scaled)
+            mask = Image.new("L", (432, 432), 0)
+            ImageDraw.Draw(mask).rounded_rectangle([46, 46, 386, 386], radius=80, fill=255)
+            px, mx = im.load(), mask.load()
+            for y in range(432):
+              for x in range(432):
+                if mx[x, y] == 0: px[x, y] = (0, 0, 0, 0)
+                else:
+                  r, g, b, a = px[x, y]
+                  br = max(r, g, b)
+                  if br <= 38: px[x, y] = (0, 0, 0, 0)
+                  elif br < 72: px[x, y] = (r, g, b, int((br - 38) * 255 / 34))
+            out = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+            scaled = im.resize((330, 330), Image.LANCZOS)
+            out.paste(scaled, (51, 51), scaled)
             return out
           f_map = {1:["drggrammain.png","main.png"],2:["drggramcrimson.png","crimson.png"],3:["drggramsunset.png","sunset.png"],4:["drggramcyan.png","cyan.png"],5:["drggramglitch.png","glitch.png"],6:["drggramvintage.png","vintage.png","matrix.png"]}
           arrows, used_files = {}, set()
@@ -223,14 +242,14 @@ jobs:
             if fn and os.path.exists(fn):
               try:
                 with Image.open(fn) as im_in:
-                  ar = prep_icon(im_in.copy()); ar.load(); arrows[idx] = ar; used_files.add(fn)
+                  ar = extract_arrow_transparent(im_in.copy()); ar.load(); arrows[idx] = ar; used_files.add(fn)
               except Exception: pass
           rem_pngs = [f for f in sorted(os.listdir(".")) if f.lower().endswith(".png") and f not in used_files]
           for idx in range(1, 7):
             if idx not in arrows and rem_pngs:
               try:
                 with Image.open(rem_pngs.pop(0)) as im_in:
-                  ar = prep_icon(im_in.copy()); ar.load(); arrows[idx] = ar
+                  ar = extract_arrow_transparent(im_in.copy()); ar.load(); arrows[idx] = ar
               except Exception: pass
           if 1 not in arrows and len(arrows) > 0: arrows[1] = next(iter(arrows.values()))
           res_xx = "TMessagesProj/src/main/res/drawable-xxhdpi"
@@ -238,9 +257,8 @@ jobs:
           Image.new("RGBA", (432, 432), (10, 10, 12, 255)).save(os.path.join(res_xx, "drg_bg_black.png"))
           def make_full_ic(ar, sz=(192, 192)):
             full_ic = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
-            mask = Image.new("L", (432, 432), 0)
-            ImageDraw.Draw(mask).rounded_rectangle([16, 16, 416, 416], radius=96, fill=255)
-            full_ic.paste(ar, (0, 0), mask)
+            ImageDraw.Draw(full_ic).rounded_rectangle([16, 16, 416, 416], radius=96, fill=(10, 10, 12, 255))
+            full_ic.paste(ar, (0, 0), ar)
             return full_ic.resize(sz, Image.LANCZOS)
           if 1 in arrows: make_full_ic(arrows[1], (432, 432)).save(os.path.join(res_xx, "drg_intro_clean.png"))
           fg_names = {1:"icon_foreground_sa.png",2:"icon_2_foreground_sa.png",3:"icon_3_foreground_sa.png",4:"icon_4_foreground_sa.png",5:"icon_5_foreground_sa.png",6:"icon_6_foreground_sa.png"}
@@ -249,7 +267,7 @@ jobs:
             if ar:
               ar.save(os.path.join(res_xx, f"drg_fg_{idx}.png"))
               ar.save(os.path.join(res_xx, fg_names[idx]))
-          black_shape = '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF0A0A0C"/></shape>'
+          black_shape = '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF0A0A0C"/><corners android:radius="24dp"/></shape>'
           def make_adaptive_xml(idx):
             return f'<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/drg_bg_black"/><foreground android:drawable="@drawable/drg_fg_{idx}"/></adaptive-icon>'
           for m_dir in ["TMessagesProj/src/main/res/mipmap-anydpi-v26", "TMessagesProj_AppStandalone/src/main/res/mipmap-anydpi-v26"]:
@@ -319,6 +337,7 @@ jobs:
                 elif f == "strings.xml":
                   with open(p, "r", encoding="utf-8") as file: c = file.read()
                   for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string name="{k}">).*?(</string>)', r'\1DrgGram\2', c)
+                  c = re.sub(r'(<string name="Page\d+(?:Title|Message)">)(.*?)(</string>)', lambda m: m.group(1) + m.group(2).replace("Telegram", "DrgGram") + m.group(3), c, flags=re.S)
                   with open(p, "w", encoding="utf-8") as file: file.write(c)
                 elif f.endswith(".java") and "TMessagesProj" in p and "DrgPluginManager" not in f:
                   with open(p, "r", encoding="utf-8") as file: jc = file.read()
@@ -347,7 +366,7 @@ jobs:
           patch("messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
           patch("messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
           patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
-          patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*String\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null);', 0)
+          patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*String\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null); if (\2 != null && \2.startsWith("Page")) { String v = getInstance().getStringInternal(\2, \3); return v != null ? v.replace("Telegram", "DrgGram") : v; }', 0)
           patch("messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
           patch("messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
           patch("messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
@@ -388,8 +407,8 @@ jobs:
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.29.${{ github.run_number }}
-          name: "DrgGram v2.29 (Build #${{ github.run_number }})"
-          body: "Рідне вікно DrgPlugins (без другого вікна) + виправлення перемикання ярликів + звук DrgGram Intro.wav!"
+          tag_name: v2.30.${{ github.run_number }}
+          name: "DrgGram v2.30 (Build #${{ github.run_number }})"
+          body: "Чисті заокруглені іконки + скидання кешу ярликів через versionCode + текст DrgGram на всіх 5 слайдах інтро!"
           files: ./DrgGram.apk
 # === КІНЕЦЬ ФАЙЛУ ===
