@@ -6,13 +6,12 @@ import android.net.Uri;
 import android.util.TypedValue;
 import android.view.*;
 import android.widget.*;
-import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.RequestTimeDelegate;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.BottomSheet;
 import org.telegram.ui.ActionBar.Theme;
+import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.ProxyListActivity;
 import java.io.*;
@@ -33,18 +32,10 @@ public class DrgProxy {
       @Override public void draw(Canvas c){
         Rect b=getBounds();float cx=b.exactCenterX(),cy=b.exactCenterY(),r=Math.min(b.width(),b.height())*0.38f;
         Path path=new Path();
-        if(type==0){// Shield SVG
+        if(type==0){
           path.moveTo(cx,cy-r);path.lineTo(cx+r*0.85f,cy-r*0.55f);path.lineTo(cx+r*0.85f,cy+r*0.1f);
           path.quadTo(cx+r*0.85f,cy+r*0.8f,cx,cy+r);path.quadTo(cx-r*0.85f,cy+r*0.8f,cx-r*0.85f,cy+r*0.1f);
           path.lineTo(cx-r*0.85f,cy-r*0.55f);path.close();c.drawPath(path,p);
-        }else if(type==1){// Refresh SVG
-          RectF rf=new RectF(cx-r*0.85f,cy-r*0.85f,cx+r*0.85f,cy+r*0.85f);
-          c.drawArc(rf,30,290,false,p);
-          path.moveTo(cx+r*0.35f,cy-r*0.95f);path.lineTo(cx+r*0.85f,cy-r*0.45f);path.lineTo(cx+r*0.25f,cy-r*0.35f);c.drawPath(path,p);
-        }else if(type==2){// Trash SVG
-          c.drawLine(cx-r*0.8f,cy-r*0.5f,cx+r*0.8f,cy-r*0.5f,p);
-          c.drawLine(cx-r*0.3f,cy-r*0.8f,cx+r*0.3f,cy-r*0.8f,p);
-          RectF rf=new RectF(cx-r*0.6f,cy-r*0.5f,cx+r*0.6f,cy+r*0.85f);c.drawRoundRect(rf,AndroidUtilities.dp(2),AndroidUtilities.dp(2),p);
         }
       }
       @Override public void setAlpha(int a){p.setAlpha(a);}
@@ -53,12 +44,6 @@ public class DrgProxy {
       @Override public int getIntrinsicWidth(){return AndroidUtilities.dp(22);}
       @Override public int getIntrinsicHeight(){return AndroidUtilities.dp(22);}
     };
-  }
-
-  private static GradientDrawable cardBg(int color,int radDp,int strokeCol){
-    GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(AndroidUtilities.dp(radDp));
-    if(strokeCol!=0)g.setStroke(Math.max(1,AndroidUtilities.dp(0.8f)),strokeCol);
-    return g;
   }
 
   public static void onPopupShown(final ActionBarPopupWindow pw){
@@ -251,69 +236,90 @@ public class DrgProxy {
     final BaseFragment bf=(BaseFragment)frag;
     final ViewGroup vg=(ViewGroup)root;
     final Context ctx=vg.getContext();
-    DrgPluginManager.H.postDelayed(()->{
-      try{
-        if(vg.findViewWithTag("drg_proxy_floating_bar")!=null)return;
-        LinearLayout bar=new LinearLayout(ctx);bar.setTag("drg_proxy_floating_bar");
-        bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);
-        bar.setBackground(cardBg(0xF21C222B,24,0x33FFFFFF));
-        int p14=AndroidUtilities.dp(14),p10=AndroidUtilities.dp(10);
-        bar.setPadding(p14,AndroidUtilities.dp(6),p14,AndroidUtilities.dp(6));
+    DrgPluginManager.H.postDelayed(new Runnable(){
+      @Override public void run(){
+        try{
+          if(!vg.isAttachedToWindow())return;
+          List<View> all=new ArrayList<>();collect(vg,all);
+          String connTitle=tgStr("ProxyConnections","З'єднання","Соединения","Connections");
+          for(View v:all){
+            if(v instanceof HeaderCell){
+              final HeaderCell hc=(HeaderCell)v;
+              CharSequence cs=hc.getTextView()!=null?hc.getTextView().getText():null;
+              String s=cs!=null?cs.toString():"";
+              if(s.equalsIgnoreCase(connTitle)||s.contains("З'єднання")||s.contains("Соединения")||s.contains("Connections")){
+                if(hc.findViewWithTag("drg_hdr_bar")==null){
+                  final LinearLayout bar=new LinearLayout(ctx);
+                  bar.setTag("drg_hdr_bar");
+                  bar.setOrientation(LinearLayout.HORIZONTAL);
+                  bar.setGravity(Gravity.CENTER_VERTICAL);
 
-        LinearLayout bRef=new LinearLayout(ctx);bRef.setOrientation(LinearLayout.HORIZONTAL);bRef.setGravity(Gravity.CENTER_VERTICAL);
-        bRef.setPadding(p10,AndroidUtilities.dp(6),p10,AndroidUtilities.dp(6));
-        int blue=0xFF4EA4F5;
-        ImageView icRef=new ImageView(ctx);icRef.setImageDrawable(makeSvg(1,blue));
-        bRef.addView(icRef,new LinearLayout.LayoutParams(AndroidUtilities.dp(20),AndroidUtilities.dp(20)));
-        TextView tvRef=new TextView(ctx);tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
-        tvRef.setTextColor(blue);tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);tvRef.setTypeface(AndroidUtilities.bold());
-        tvRef.setPadding(AndroidUtilities.dp(6),0,0,0);bRef.addView(tvRef);
-        bRef.setOnClickListener(v->{
-          SharedConfig.loadProxyList();
-          if(SharedConfig.proxyList.isEmpty())return;
-          for(SharedConfig.ProxyInfo p:SharedConfig.proxyList){
-            pSet(p,Boolean.FALSE,"available");pSet(p,Long.valueOf(0L),"ping");pSet(p,Long.valueOf(0L),"addressCheckTime");pSet(p,Integer.valueOf(0),"proxyCheckPingId");
-            pingProxy(p,()->refreshNativeProxyList(bf));
+                  TextView tvDel=new TextView(ctx);
+                  tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
+                  tvDel.setTextColor(0xFFE56555);
+                  tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);
+                  tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
+                  tvDel.setOnClickListener(clk->{
+                    SharedConfig.loadProxyList();
+                    for(int i=SharedConfig.proxyList.size()-1;i>=0;i--){
+                      SharedConfig.ProxyInfo p=SharedConfig.proxyList.get(i);
+                      if(p==SharedConfig.currentProxy)continue;
+                      boolean chk=pBool(p,"checking");
+                      long chkTime=pLong(p,"availableCheckTime");
+                      boolean av=pBool(p,"available");
+                      long pg=pLong(p,"ping");
+                      if(!chk&&chkTime>0&&(!av||pg<=0)){
+                        SharedConfig.deleteProxy(p);
+                      }
+                    }
+                    refreshNativeProxyList(bf,false);
+                  });
+                  bar.addView(tvDel);
+
+                  TextView tvRef=new TextView(ctx);
+                  tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
+                  tvRef.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
+                  tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);
+                  tvRef.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
+                  tvRef.setOnClickListener(clk->{
+                    SharedConfig.loadProxyList();
+                    for(SharedConfig.ProxyInfo p:SharedConfig.proxyList){
+                      pSet(p,Boolean.FALSE,"checking");
+                      pSet(p,Long.valueOf(0L),"availableCheckTime");
+                    }
+                    refreshNativeProxyList(bf,true);
+                  });
+                  bar.addView(tvRef);
+
+                  hc.addView(bar,new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL));
+                  hc.addOnLayoutChangeListener(( chV,l,t,r,b,ol,ot,or,ob)->{
+                    int w=r-l,h=b-t;
+                    if(w>0&&h>0){
+                      bar.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.AT_MOST),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.AT_MOST));
+                      int bw=bar.getMeasuredWidth(),bh=bar.getMeasuredHeight();
+                      int rightPad=AndroidUtilities.dp(14);
+                      int topPos=Math.max(0,(h-bh)/2+AndroidUtilities.dp(3));
+                      bar.layout(w-bw-rightPad,topPos,w-rightPad,topPos+bh);
+                    }
+                  });
+                  hc.requestLayout();
+                }
+              }
+            }
           }
-          refreshNativeProxyList(bf);
-        });
-        bar.addView(bRef);
-
-        View sep=new View(ctx);sep.setBackgroundColor(0x33FFFFFF);
-        LinearLayout.LayoutParams sepLp=new LinearLayout.LayoutParams(1,AndroidUtilities.dp(20));
-        sepLp.leftMargin=AndroidUtilities.dp(6);sepLp.rightMargin=AndroidUtilities.dp(6);
-        bar.addView(sep,sepLp);
-
-        LinearLayout bDel=new LinearLayout(ctx);bDel.setOrientation(LinearLayout.HORIZONTAL);bDel.setGravity(Gravity.CENTER_VERTICAL);
-        bDel.setPadding(p10,AndroidUtilities.dp(6),p10,AndroidUtilities.dp(6));
-        int red=0xFFE56555;
-        ImageView icDel=new ImageView(ctx);icDel.setImageDrawable(makeSvg(2,red));
-        bDel.addView(icDel,new LinearLayout.LayoutParams(AndroidUtilities.dp(20),AndroidUtilities.dp(20)));
-        TextView tvDel=new TextView(ctx);tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
-        tvDel.setTextColor(red);tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);tvDel.setTypeface(AndroidUtilities.bold());
-        tvDel.setPadding(AndroidUtilities.dp(6),0,0,0);bDel.addView(tvDel);
-        bDel.setOnClickListener(v->{
-          SharedConfig.loadProxyList();
-          for(int i=SharedConfig.proxyList.size()-1;i>=0;i--){
-            SharedConfig.ProxyInfo p=SharedConfig.proxyList.get(i);
-            if(!pBool(p,"available")){SharedConfig.deleteProxy(p);}
-          }
-          refreshNativeProxyList(bf);
-        });
-        bar.addView(bDel);
-
-        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
-        lp.bottomMargin=AndroidUtilities.dp(24);
-        vg.addView(bar,lp);
-        bar.bringToFront();
-      }catch(Throwable ignored){}
-    },120);
+          DrgPluginManager.H.postDelayed(this,500);
+        }catch(Throwable ignored){}
+      }
+    },100);
   }
 
-  private static void refreshNativeProxyList(BaseFragment bf){
+  private static void refreshNativeProxyList(BaseFragment bf,boolean recheck){
     try{
       for(Method m:bf.getClass().getDeclaredMethods()){
-        if("updateRows".equals(m.getName())||"checkProxyList".equals(m.getName())){
+        if(recheck&&"checkProxyList".equals(m.getName())){
+          m.setAccessible(true);
+          if(m.getParameterTypes().length==0)m.invoke(bf);
+        }else if("updateRows".equals(m.getName())){
           m.setAccessible(true);
           if(m.getParameterTypes().length==1)m.invoke(bf,Boolean.TRUE);
           else if(m.getParameterTypes().length==0)m.invoke(bf);
@@ -325,38 +331,11 @@ public class DrgProxy {
 
   private static void collect(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collect(vg.getChildAt(i),out);}}
   private static Object getSettingsObj(Object p){if(p==null)return null;try{for(Field f:p.getClass().getDeclaredFields()){if(f.getType().getSimpleName().contains("ProxySettings")){f.setAccessible(true);Object v=f.get(p);if(v!=null)return v;}}}catch(Throwable ignored){}return p;}
-  private static String pStr(Object p,String... nms){if(p==null)return "";for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);Object v=f.get(t);if(v!=null)return v.toString();}catch(Throwable ignored){}}}return "";}
-  private static int pInt(Object p,String... nms){if(p==null)return 1080;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);return f.getInt(t);}catch(Throwable ignored){}}}return 1080;}
   private static long pLong(Object p,String... nms){if(p==null)return 0L;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);return f.getLong(t);}catch(Throwable ignored){}}}return 0L;}
   private static boolean pBool(Object p,String... nms){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);return f.getBoolean(t);}catch(Throwable ignored){}}}return false;}
   private static void pSet(Object p,Object val,String... nms){if(p==null)return;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);f.set(t,val);return;}catch(Throwable ignored){}}}}
-  private static String pAddr(Object p){return pStr(p,"address","ip","host","server");}
-  private static int pPort(Object p){return pInt(p,"port");}
-  private static String pUser(Object p){return pStr(p,"username","user");}
-  private static String pPass(Object p){return pStr(p,"password","pass");}
-  private static String pSec(Object p){return pStr(p,"secret");}
   private static String tgStr(String k,String uk,String ru,String en){return DrgPluginManager.tgStr(k,uk,ru,en);}
   private static String tr(String uk,String ru,String en){return DrgPluginManager.tr(uk,ru,en);}
-
-  public static void pingProxy(final SharedConfig.ProxyInfo p,final Runnable onDone){
-    if(p==null)return;pSet(p,Boolean.TRUE,"checking");final int a=UserConfig.selectedAccount;
-    final RequestTimeDelegate del=time->DrgPluginManager.H.post(()->{
-      pSet(p,Boolean.FALSE,"checking");
-      if(time>0){pSet(p,Boolean.TRUE,"available");pSet(p,Long.valueOf(time),"ping");}
-      else{pSet(p,Boolean.FALSE,"available");pSet(p,Long.valueOf(0L),"ping");}
-      if(onDone!=null)onDone.run();
-    });
-    try{
-      ConnectionsManager cm=ConnectionsManager.getInstance(a);
-      for(Method m:ConnectionsManager.class.getDeclaredMethods()){
-        if("checkProxy".equals(m.getName())){
-          m.setAccessible(true);
-          if(m.getParameterTypes().length==2){m.invoke(cm,getSettingsObj(p),del);return;}
-          if(m.getParameterTypes().length==6){m.invoke(cm,pAddr(p),pPort(p),pUser(p),pPass(p),pSec(p),del);return;}
-        }
-      }
-    }catch(Throwable ignored){pSet(p,Boolean.FALSE,"checking");if(onDone!=null)DrgPluginManager.H.post(onDone);}
-  }
 
   private static String readHttps(String urlStr){
     try{
