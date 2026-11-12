@@ -177,6 +177,8 @@ patch("ui/IntroActivity.java", r"return\s+fragmentView\s*;", "org.telegram.messe
 patch("ui/IntroActivity.java", r"headerTextView\.setText\([^)]*\);", 'headerTextView.setText("DrgGram");', 0)
 patch("ui/IntroActivity.java", r"LocaleController\.getString\(messages\[(\w+)\]\)", r'LocaleController.getString(messages[\1]).replace("Telegram", "DrgGram")', 0)
 patch("ui/ActionBar/ActionBarMenuSubItem.java", r"(public\s+void\s+setTextAndIcon\s*\(\s*CharSequence\s+(\w+)\s*,\s*int\s+(\w+)[^)]*\)\s*\{)", r'\1 if (\2 != null && \2.toString().contains("/100)")) { org.telegram.messenger.DrgPluginManager.attachAccountReorderHook(this, textView); }', 0)
+patch("ui/ActionBar/ActionBarPopupWindow.java", r"(public\s+void\s+showAsDropDown\s*\([^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.onPopupShown(this);", 0)
+patch("ui/ActionBar/ActionBarPopupWindow.java", r"(public\s+void\s+showAtLocation\s*\([^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.onPopupShown(this);", 0)
 patch("messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
 patch("messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
 patch("messenger/BuildVars.java", r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;')
