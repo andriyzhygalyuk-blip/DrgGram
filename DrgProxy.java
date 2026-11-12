@@ -18,6 +18,7 @@ import org.telegram.ui.ProxyListActivity;
 import java.io.*;
 import java.lang.reflect.*;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
 import java.util.*;
 import java.util.regex.*;
@@ -92,87 +93,149 @@ public class DrgProxy {
     },40);
   }
 
+  private static String getViewText(View v){
+    if(v==null)return "";
+    if(v instanceof TextView){
+      CharSequence cs=((TextView)v).getText();
+      return cs!=null?cs.toString().trim():"";
+    }
+    try{
+      Method m=v.getClass().getMethod("getText");
+      Object r=m.invoke(v);
+      return r!=null?r.toString().trim():"";
+    }catch(Throwable ignored){}
+    return "";
+  }
+
   public static void onBottomSheetShown(final BottomSheet bs){
     if(bs==null)return;
-    for(int delay:new int[]{50,180}){
+    for(int delay:new int[]{40,140,320}){
       DrgPluginManager.H.postDelayed(()->{
         try{
           if(bs.getWindow()==null)return;
           View decor=bs.getWindow().getDecorView();if(!(decor instanceof ViewGroup))return;
           List<View> all=new ArrayList<>();collect(decor,all);
-          ViewGroup srvRow=null,table=null;
+          for(View v:all)if("drg_bs_country".equals(v.getTag()))return;
+
+          View srvLabelView=null;
+          ViewGroup table=null,srvRow=null;
           String srvAddress="",secVal="";
           String srvKey1=tgStr("UseProxyAddress","Сервер","Сервер","Server");
           String secKey1=tgStr("UseProxySecret","Секрет","Секрет","Secret");
+
           for(View v:all){
-            if("drg_bs_country".equals(v.getTag()))return;
-            if(v instanceof TextView){
-              CharSequence cs=((TextView)v).getText();
-              String s=cs!=null?cs.toString().trim():"";
-              if((s.equalsIgnoreCase(srvKey1)||s.equalsIgnoreCase("Сервер")||s.equalsIgnoreCase("Server"))&&v.getParent() instanceof ViewGroup){
-                ViewGroup row=(ViewGroup)v.getParent();
-                if(row.getParent() instanceof ViewGroup&&row.getChildCount()>=2){
-                  srvRow=row;table=(ViewGroup)row.getParent();
-                  for(int i=0;i<row.getChildCount();i++){
-                    View ch=row.getChildAt(i);
-                    if(ch instanceof TextView&&ch!=v){srvAddress=((TextView)ch).getText().toString().trim();}
+            String s=getViewText(v);
+            if(s.isEmpty())continue;
+            if(srvLabelView==null&&(s.equalsIgnoreCase(srvKey1)||s.equalsIgnoreCase("Сервер")||s.equalsIgnoreCase("Server"))){
+              srvLabelView=v;
+              View p=v;
+              while(p.getParent() instanceof ViewGroup){
+                ViewGroup pg=(ViewGroup)p.getParent();
+                if(pg.getClass().getSimpleName().contains("TableView")||pg.getChildCount()>=3){
+                  table=pg;srvRow=(ViewGroup)p;break;
+                }
+                p=pg;
+              }
+              if(srvRow!=null){
+                List<View> rvs=new ArrayList<>();collect(srvRow,rvs);
+                for(View rv:rvs){
+                  if(rv!=v){
+                    String rt=getViewText(rv);
+                    if(!rt.isEmpty()&&!rt.equalsIgnoreCase(s)){srvAddress=rt;break;}
                   }
                 }
-              }else if((s.equalsIgnoreCase(secKey1)||s.equalsIgnoreCase("Секрет")||s.equalsIgnoreCase("Secret"))&&v.getParent() instanceof ViewGroup){
-                ViewGroup row=(ViewGroup)v.getParent();
-                for(int i=0;i<row.getChildCount();i++){
-                  View ch=row.getChildAt(i);
-                  if(ch instanceof TextView&&ch!=v){secVal=((TextView)ch).getText().toString().trim();}
+              }
+            }else if(s.equalsIgnoreCase(secKey1)||s.equalsIgnoreCase("Секрет")||s.equalsIgnoreCase("Secret")){
+              if(v.getParent() instanceof ViewGroup){
+                List<View> rvs=new ArrayList<>();collect((ViewGroup)v.getParent(),rvs);
+                for(View rv:rvs){
+                  if(rv!=v){
+                    String rt=getViewText(rv);
+                    if(!rt.isEmpty()&&!rt.equalsIgnoreCase(s)){secVal=rt;break;}
+                  }
                 }
               }
             }
           }
-          if(srvRow==null||table==null||srvAddress.isEmpty())return;
-          Context ctx=table.getContext();
-          int srvIdx=table.indexOfChild(srvRow);if(srvIdx<0)srvIdx=0;
+          if(table==null||srvRow==null||srvAddress.isEmpty())return;
           boolean isMt=!secVal.isEmpty();
-          String typeStr=isMt?tr("Проксі MTProto","Прокси MTProto","MTProto Proxy"):"SOCKS5";
-          TextView[] cTv={null};
-          View rType=makeTableCloneRow(ctx,srvRow,tr("Тип","Тип","Type"),typeStr,null);
-          rType.setTag("drg_bs_country");
-          View div1=new View(ctx);div1.setBackgroundColor(0x22FFFFFF);
-          View rCountry=makeTableCloneRow(ctx,srvRow,tgStr("Country","Країна","Страна","Country"),"...",cTv);
-          View div2=new View(ctx);div2.setBackgroundColor(0x22FFFFFF);
-          table.addView(div2,srvIdx);
-          table.addView(rCountry,srvIdx);
-          table.addView(div1,srvIdx);
-          table.addView(rType,srvIdx);
-          if(cTv[0]!=null)fetchCountryAsync(srvAddress,cTv[0]);
+          String typeTitle=tr("Тип","Тип","Type");
+          String typeVal=isMt?tr("Проксі MTProto","Прокси MTProto","MTProto Proxy"):"SOCKS5";
+          String countryTitle=tgStr("Country","Країна","Страна","Country");
+
+          View addedType=addNativeTableRow(table,srvRow,typeTitle,typeVal,null);
+          TextView[] countryOut={null};
+          View addedCountry=addNativeTableRow(table,srvRow,countryTitle,"...",countryOut);
+          if(addedType!=null){
+            addedType.setTag("drg_bs_country");
+            int idx=table.indexOfChild(srvRow);if(idx<0)idx=0;
+            if(addedCountry!=null&&addedCountry.getParent()==table){
+              table.removeView(addedCountry);
+              table.addView(addedCountry,idx);
+            }
+            if(addedType.getParent()==table){
+              table.removeView(addedType);
+              table.addView(addedType,idx);
+            }
+          }
+          if(countryOut[0]!=null)fetchCountryAsync(srvAddress,countryOut[0]);
         }catch(Throwable ignored){}
       },delay);
     }
   }
 
-  private static View makeTableCloneRow(Context ctx,ViewGroup sampleRow,String key,String val,TextView[] outVal){
-    LinearLayout r=new LinearLayout(ctx);r.setOrientation(LinearLayout.HORIZONTAL);r.setGravity(Gravity.CENTER_VERTICAL);
-    int kCol=0xFF8A94A3,vCol=Color.WHITE,kW=AndroidUtilities.dp(92),pL=AndroidUtilities.dp(12),pT=AndroidUtilities.dp(11);
-    float tSz=14f;
+  private static View addNativeTableRow(ViewGroup table,ViewGroup sampleRow,String key,String val,TextView[] outTv){
     try{
-      if(sampleRow.getChildAt(0) instanceof TextView){
-        TextView sk=(TextView)sampleRow.getChildAt(0);
-        kCol=sk.getCurrentTextColor();
-        if(sk.getLayoutParams()!=null&&sk.getLayoutParams().width>0)kW=sk.getLayoutParams().width;
-        pL=sk.getPaddingLeft()>0?sk.getPaddingLeft():pL;
-        pT=sk.getPaddingTop()>0?sk.getPaddingTop():pT;
-      }
-      for(int i=1;i<sampleRow.getChildCount();i++){
-        if(sampleRow.getChildAt(i) instanceof TextView){vCol=((TextView)sampleRow.getChildAt(i)).getCurrentTextColor();break;}
+      for(Method m:table.getClass().getDeclaredMethods()){
+        if("addRow".equals(m.getName())){
+          m.setAccessible(true);
+          Class<?>[] pt=m.getParameterTypes();
+          if(pt.length==3&&pt[0]==CharSequence.class&&pt[1]==CharSequence.class){
+            Object rowObj=m.invoke(table,key,val,null);
+            if(rowObj instanceof View){
+              View rv=(View)rowObj;
+              if(outTv!=null){
+                List<View> ch=new ArrayList<>();collect(rv,ch);
+                for(int i=ch.size()-1;i>=0;i--){
+                  if(ch.get(i) instanceof TextView){outTv[0]=(TextView)ch.get(i);break;}
+                }
+              }
+              return rv;
+            }
+          }
+        }
       }
     }catch(Throwable ignored){}
-    TextView k=new TextView(ctx);k.setText(key);k.setTextColor(kCol);k.setTextSize(TypedValue.COMPLEX_UNIT_DIP,tSz);
+    Context ctx=table.getContext();
+    LinearLayout r=new LinearLayout(ctx);r.setOrientation(LinearLayout.HORIZONTAL);r.setGravity(Gravity.CENTER_VERTICAL);
+    int kCol=0xFF8A94A3,vCol=Color.WHITE,kW=AndroidUtilities.dp(92),pL=AndroidUtilities.dp(14),pT=AndroidUtilities.dp(11);
+    try{
+      List<View> sc=new ArrayList<>();collect(sampleRow,sc);
+      TextView firstTv=null,secondTv=null;
+      for(View v:sc){
+        if(v instanceof TextView){
+          if(firstTv==null)firstTv=(TextView)v;
+          else{secondTv=(TextView)v;break;}
+        }
+      }
+      if(firstTv!=null){
+        kCol=firstTv.getCurrentTextColor();
+        if(firstTv.getWidth()>0)kW=firstTv.getWidth();
+        if(firstTv.getPaddingLeft()>0)pL=firstTv.getPaddingLeft();
+        if(firstTv.getPaddingTop()>0)pT=firstTv.getPaddingTop();
+      }
+      if(secondTv!=null)vCol=secondTv.getCurrentTextColor();
+    }catch(Throwable ignored){}
+    TextView k=new TextView(ctx);k.setText(key);k.setTextColor(kCol);k.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);
     k.setPadding(pL,pT,pL,pT);
     r.addView(k,new LinearLayout.LayoutParams(kW,-2));
     View vLine=new View(ctx);vLine.setBackgroundColor(0x22FFFFFF);
     r.addView(vLine,new LinearLayout.LayoutParams(1,-1));
-    TextView v=new TextView(ctx);v.setText(val);v.setTextColor(vCol);v.setTextSize(TypedValue.COMPLEX_UNIT_DIP,tSz);
+    TextView v=new TextView(ctx);v.setText(val);v.setTextColor(vCol);v.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);
     v.setPadding(pL,pT,pL,pT);
-    if(outVal!=null)outVal[0]=v;
+    if(outTv!=null)outTv[0]=v;
     r.addView(v,new LinearLayout.LayoutParams(0,-2,1f));
+    table.addView(r);
     return r;
   }
 
@@ -208,7 +271,6 @@ public class DrgProxy {
         bRef.setOnClickListener(v->{
           SharedConfig.loadProxyList();
           if(SharedConfig.proxyList.isEmpty())return;
-          DrgPluginManager.toast(tgStr("Checking","Перевірка...","Проверка...","Checking..."));
           for(SharedConfig.ProxyInfo p:SharedConfig.proxyList){
             pSet(p,Boolean.FALSE,"available");pSet(p,Long.valueOf(0L),"ping");pSet(p,Long.valueOf(0L),"addressCheckTime");pSet(p,Integer.valueOf(0),"proxyCheckPingId");
             pingProxy(p,()->refreshNativeProxyList(bf));
@@ -232,12 +294,10 @@ public class DrgProxy {
         tvDel.setPadding(AndroidUtilities.dp(6),0,0,0);bDel.addView(tvDel);
         bDel.setOnClickListener(v->{
           SharedConfig.loadProxyList();
-          int rem=0;
           for(int i=SharedConfig.proxyList.size()-1;i>=0;i--){
             SharedConfig.ProxyInfo p=SharedConfig.proxyList.get(i);
-            if(!pBool(p,"available")&&pLong(p,"ping")<=0&&SharedConfig.currentProxy!=p){SharedConfig.deleteProxy(p);rem++;}
+            if(!pBool(p,"available")){SharedConfig.deleteProxy(p);}
           }
-          DrgPluginManager.toast(tgStr("Delete","Видалити","Удалить","Delete")+": "+rem);
           refreshNativeProxyList(bf);
         });
         bar.addView(bDel);
@@ -298,6 +358,52 @@ public class DrgProxy {
     }catch(Throwable ignored){pSet(p,Boolean.FALSE,"checking");if(onDone!=null)DrgPluginManager.H.post(onDone);}
   }
 
-  private static void fetchCountryAsync(final String addr,final TextView tv){if(addr==null||addr.isEmpty())return;String cached=countryCache.get(addr);if(cached!=null){tv.setText(cached);return;}new Thread(()->{String cName="—";try{HttpURLConnection con=(HttpURLConnection)new URL("http://ip-api.com/json/"+Uri.encode(addr)+"?fields=countryCode,country&lang="+DrgPluginManager.lang()).openConnection();con.setConnectTimeout(3500);con.setReadTimeout(3500);try(BufferedReader br=new BufferedReader(new InputStreamReader(con.getInputStream(),"UTF-8"))){String s=br.readLine();if(s!=null){Matcher mc=Pattern.compile("\"countryCode\"\\s*:\\s*\"([A-Z]{2})\"").matcher(s);if(mc.find()){String iso=mc.group(1);String loc=new Locale("",iso).getDisplayCountry(Locale.getDefault());if(loc!=null&&!loc.isEmpty())cName=loc;}if("—".equals(cName)){Matcher m=Pattern.compile("\"country\"\\s*:\\s*\"([^\"]+)\"").matcher(s);if(m.find()&&!m.group(1).isEmpty())cName=m.group(1);}}}}catch(Throwable ignored){}final String fc=cName;countryCache.put(addr,fc);DrgPluginManager.H.post(()->{try{tv.setText(fc);}catch(Throwable ignored){}});}).start();}
+  private static String readHttps(String urlStr){
+    try{
+      HttpURLConnection con=(HttpURLConnection)new URL(urlStr).openConnection();
+      con.setConnectTimeout(3500);con.setReadTimeout(3500);
+      try(BufferedReader br=new BufferedReader(new InputStreamReader(con.getInputStream(),"UTF-8"))){
+        StringBuilder sb=new StringBuilder();String ln;
+        while((ln=br.readLine())!=null)sb.append(ln);
+        return sb.toString();
+      }
+    }catch(Throwable ignored){return "";}
+  }
+
+  private static void fetchCountryAsync(final String addr,final TextView tv){
+    if(addr==null||addr.isEmpty()||tv==null)return;
+    String cached=countryCache.get(addr);
+    if(cached!=null){tv.setText(cached);return;}
+    new Thread(()->{
+      String cName="—";
+      try{
+        String ip=addr.trim();
+        try{InetAddress ia=InetAddress.getByName(ip);if(ia!=null&&ia.getHostAddress()!=null)ip=ia.getHostAddress();}catch(Throwable ignored){}
+        String iso="";
+        String r1=readHttps("https://api.country.is/"+Uri.encode(ip));
+        Matcher m1=Pattern.compile("\"country\"\\s*:\\s*\"([A-Z]{2})\"").matcher(r1);
+        if(m1.find())iso=m1.group(1);
+        if(iso.isEmpty()){
+          String r2=readHttps("https://ipwho.is/"+Uri.encode(ip)+"?lang="+DrgPluginManager.lang());
+          Matcher m2=Pattern.compile("\"country_code\"\\s*:\\s*\"([A-Z]{2})\"").matcher(r2);
+          if(m2.find())iso=m2.group(1);
+          Matcher m2c=Pattern.compile("\"country\"\\s*:\\s*\"([^\"]+)\"").matcher(r2);
+          if(m2c.find()&&!m2c.group(1).isEmpty())cName=m2c.group(1);
+        }
+        if(iso.isEmpty()){
+          String r3=readHttps("https://ipinfo.io/"+Uri.encode(ip)+"/country");
+          if(r3!=null&&r3.trim().matches("[A-Z]{2}"))iso=r3.trim();
+        }
+        if(!iso.isEmpty()){
+          Locale userLoc=new Locale(DrgPluginManager.lang());
+          String disp=new Locale("",iso).getDisplayCountry(userLoc);
+          if(disp!=null&&!disp.isEmpty()&&!disp.equalsIgnoreCase(iso))cName=disp;
+        }
+      }catch(Throwable ignored){}
+      final String fc=cName;
+      if(!"—".equals(fc))countryCache.put(addr,fc);
+      DrgPluginManager.H.post(()->{try{tv.setText(fc);}catch(Throwable ignored){}});
+    }).start();
+  }
 }
 // === КІНЕЦЬ ФАЙЛУ ===
