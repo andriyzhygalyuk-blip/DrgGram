@@ -144,6 +144,8 @@ for root, _, files in os.walk("."):
         with open(p, "r", encoding="utf-8") as file: m = file.read()
         m = m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram.")
         if "largeHeap" not in m: m = m.replace("<application", '<application android:largeHeap="true"', 1)
+        for perm in ["RECEIVE_SMS", "READ_SMS", "REQUEST_INSTALL_PACKAGES"]:
+          m = re.sub(rf'<uses-permission\b(?:(?!</uses-permission>|/>|>).)*?android\.permission\.{perm}(?:(?!</uses-permission>|/>|>).)*?(?:/>|>\s*</uses-permission>)\s*', '', m, flags=re.S)
         for al, idx in man_slots.items():
           def fix_al(mt, i=idx):
             t = re.sub(r'\s*android:(roundIcon|icon|name)="[^"]*"', '', mt.group(0))
