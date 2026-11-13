@@ -3,11 +3,13 @@ import android.content.*;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.net.Uri;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.*;
 import android.widget.*;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
+import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -242,27 +244,57 @@ public class DrgProxy {
 
   private static void doRefreshProxies(BaseFragment bf){
     SharedConfig.loadProxyList();
+    long expired=SystemClock.elapsedRealtime()-300000L;
     for(SharedConfig.ProxyInfo p:SharedConfig.proxyList){
       pSet(p,Boolean.FALSE,"checking");
-      pSet(p,Long.valueOf(0L),"availableCheckTime");
+      pSet(p,Long.valueOf(expired),"availableCheckTime");
     }
     refreshNativeProxyList(bf,true);
+    DrgPluginManager.toast(tr("Оновлення списку проксі...","Обновление списка прокси...","Refreshing proxy list..."));
   }
 
   private static void doDeleteUnavailableProxies(BaseFragment bf){
     SharedConfig.loadProxyList();
+    int removed=0;
     for(int i=SharedConfig.proxyList.size()-1;i>=0;i--){
       SharedConfig.ProxyInfo p=SharedConfig.proxyList.get(i);
-      if(p==SharedConfig.currentProxy)continue;
+      if(p==SharedConfig.currentProxy&&SharedConfig.isProxyEnabled())continue;
       boolean chk=pBool(p,"checking");
       long chkTime=pLong(p,"availableCheckTime");
       boolean av=pBool(p,"available");
       long pg=pLong(p,"ping");
-      if(!chk&&chkTime>0&&(!av||pg<=0)){
+      if(!chk&&chkTime!=0&&(!av||pg<=0)){
         SharedConfig.deleteProxy(p);
+        removed++;
       }
     }
     refreshNativeProxyList(bf,false);
+    DrgPluginManager.toast(removed>0?(tr("Видалено недоступних: ","Удалено недоступных: ","Removed unavailable: ")+removed):tr("Немає недоступних проксі","Нет недоступных прокси","No unavailable proxies"));
+  }
+
+  private static void tintMenuItem(ActionBarMenuItem item,int color){
+    if(item==null)return;
+    try{
+      Method m=item.getClass().getMethod("setIconColor",int.class);
+      m.invoke(item,color);
+      return;
+    }catch(Throwable ignored){}
+    try{
+      Method m=item.getClass().getMethod("getIconView");
+      Object iv=m.invoke(item);
+      if(iv instanceof ImageView){
+        ((ImageView)iv).setColorFilter(new PorterDuffColorFilter(color,PorterDuff.Mode.MULTIPLY));
+        return;
+      }
+    }catch(Throwable ignored){}
+    try{
+      Field f=item.getClass().getDeclaredField("iconView");
+      f.setAccessible(true);
+      Object iv=f.get(item);
+      if(iv instanceof ImageView){
+        ((ImageView)iv).setColorFilter(new PorterDuffColorFilter(color,PorterDuff.Mode.MULTIPLY));
+      }
+    }catch(Throwable ignored){}
   }
 
   public static void attachToNativeProxyList(final Object frag,final View root){
@@ -273,42 +305,46 @@ public class DrgProxy {
 
     try{
       ActionBar ab=bf.getActionBar();
-      if(ab!=null&&ab.findViewWithTag("drg_ab_proxy_btns")==null){
+      if(ab!=null){
         ActionBarMenu menu=ab.createMenu();
-        if(menu!=null){
-          LinearLayout abBox=new LinearLayout(ctx);
-          abBox.setTag("drg_ab_proxy_btns");
-          abBox.setOrientation(LinearLayout.HORIZONTAL);
-          abBox.setGravity(Gravity.CENTER_VERTICAL);
+        if(menu!=null&&menu.findViewWithTag("drg_ab_proxy_btns")==null){
           int icCol=Theme.getColor(Theme.key_actionBarDefaultIcon);
-
-          ImageView bRef=new ImageView(ctx);
-          bRef.setImageDrawable(makeSvg(1,icCol));
-          bRef.setScaleType(ImageView.ScaleType.CENTER);
-          bRef.setOnClickListener(v->doRefreshProxies(bf));
-          abBox.addView(bRef,new LinearLayout.LayoutParams(AndroidUtilities.dp(44),AndroidUtilities.dp(44)));
-
-          ImageView bDel=new ImageView(ctx);
-          bDel.setImageDrawable(makeSvg(2,0xFFE56555));
-          bDel.setScaleType(ImageView.ScaleType.CENTER);
-          bDel.setOnClickListener(v->doDeleteUnavailableProxies(bf));
-          abBox.addView(bDel,new LinearLayout.LayoutParams(AndroidUtilities.dp(44),AndroidUtilities.dp(44)));
-
-          menu.addView(abBox,new FrameLayout.LayoutParams(-2,-1,Gravity.RIGHT|Gravity.CENTER_VERTICAL));
+          ActionBarMenuItem refItem=menu.addItem(991001,makeSvg(1,Color.WHITE));
+          if(refItem!=null){
+            refItem.setTag("drg_ab_proxy_btns");
+            tintMenuItem(refItem,icCol);
+            refItem.setContentDescription(tgStr("Refresh","Оновити","Обновить","Refresh"));
+            refItem.setOnClickListener(v->doRefreshProxies(bf));
+          }
+          ActionBarMenuItem delItem=menu.addItem(991002,makeSvg(2,Color.WHITE));
+          if(delItem!=null){
+            delItem.setTag("drg_ab_proxy_del");
+            tintMenuItem(delItem,0xFFE56555);
+            delItem.setContentDescription(tgStr("Delete","Видалити","Удалить","Delete"));
+            delItem.setOnClickListener(v->doDeleteUnavailableProxies(bf));
+          }
         }
       }
     }catch(Throwable ignored){}
 
+    final int[] waitTries={0};
+    final boolean[] wasAttached={false};
     DrgPluginManager.H.postDelayed(new Runnable(){
       @Override public void run(){
         try{
-          if(!vg.isAttachedToWindow())return;
+          if(!vg.isAttachedToWindow()){
+            if(!wasAttached[0]&&waitTries[0]++<30){
+              DrgPluginManager.H.postDelayed(this,100);
+            }
+            return;
+          }
+          wasAttached[0]=true;
           List<View> all=new ArrayList<>();collect(vg,all);
           String connTitle=tgStr("ProxyConnections","З'єднання","Соединения","Connections");
           for(View v:all){
             String s=getViewText(v);
             if(s.isEmpty())continue;
-            if((s.equalsIgnoreCase(connTitle)||s.equalsIgnoreCase("З'єднання")||s.equalsIgnoreCase("Соединения")||s.equalsIgnoreCase("Connections"))&&v.getParent() instanceof ViewGroup){
+            if((s.equalsIgnoreCase(connTitle)||s.equalsIgnoreCase("З'єднання")||s.equalsIgnoreCase("З’єднання")||s.equalsIgnoreCase("Соединения")||s.equalsIgnoreCase("Connections"))&&v.getParent() instanceof ViewGroup){
               final ViewGroup hc=(ViewGroup)v.getParent();
               if(hc.findViewWithTag("drg_hdr_bar")==null){
                 final LinearLayout bar=new LinearLayout(ctx);
@@ -316,57 +352,70 @@ public class DrgProxy {
                 bar.setOrientation(LinearLayout.HORIZONTAL);
                 bar.setGravity(Gravity.CENTER_VERTICAL);
 
+                int blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2);
+                if(blueCol==0)blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2);
+                Typeface tf=null;
+                try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
+
                 TextView tvDel=new TextView(ctx);
                 tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
                 tvDel.setTextColor(0xFFE56555);
-                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13.5f);
-                tvDel.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(8),AndroidUtilities.dp(4));
+                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13f);
+                if(tf!=null)tvDel.setTypeface(tf);
+                tvDel.setPadding(AndroidUtilities.dp(6),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
+                try{tvDel.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
                 tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
                 bar.addView(tvDel);
 
                 TextView tvRef=new TextView(ctx);
                 tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
-                tvRef.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
-                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13.5f);
-                tvRef.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
+                tvRef.setTextColor(blueCol);
+                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13f);
+                if(tf!=null)tvRef.setTypeface(tf);
+                tvRef.setPadding(AndroidUtilities.dp(6),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
+                try{tvRef.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
                 tvRef.setOnClickListener(clk->doRefreshProxies(bf));
                 bar.addView(tvRef);
 
-                hc.addView(bar);
-                hc.getViewTreeObserver().addOnPreDrawListener(()->{
-                  try{
-                    int w=hc.getWidth(),h=hc.getHeight();
-                    if(w>0&&h>0&&bar.getParent()==hc){
-                      bar.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.AT_MOST),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.AT_MOST));
-                      int bw=bar.getMeasuredWidth(),bh=bar.getMeasuredHeight();
-                      int rightPad=AndroidUtilities.dp(14);
-                      int topPos=Math.max(0,(h-bh)/2+AndroidUtilities.dp(2));
-                      bar.layout(w-bw-rightPad,topPos,w-rightPad,topPos+bh);
-                    }
-                  }catch(Throwable ignored){}
-                  return true;
-                });
-                hc.invalidate();
+                if(hc instanceof FrameLayout){
+                  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+                  lp.rightMargin=AndroidUtilities.dp(12);
+                  lp.topMargin=AndroidUtilities.dp(4);
+                  hc.addView(bar,lp);
+                }else{
+                  hc.addView(bar);
+                }
               }
             }
           }
           DrgPluginManager.H.postDelayed(this,450);
         }catch(Throwable ignored){}
       }
-    },80);
+    },60);
   }
 
   private static void refreshNativeProxyList(BaseFragment bf,boolean recheck){
     try{
-      for(Method m:bf.getClass().getDeclaredMethods()){
-        if(recheck&&"checkProxyList".equals(m.getName())){
+      if(recheck){
+        try{
+          Method m=bf.getClass().getDeclaredMethod("checkProxyList");
           m.setAccessible(true);
-          if(m.getParameterTypes().length==0)m.invoke(bf);
-        }else if("updateRows".equals(m.getName())){
+          m.invoke(bf);
+        }catch(Throwable ignored){}
+      }
+      boolean updated=false;
+      try{
+        Method m=bf.getClass().getDeclaredMethod("updateRows",boolean.class);
+        m.setAccessible(true);
+        m.invoke(bf,Boolean.TRUE);
+        updated=true;
+      }catch(Throwable ignored){}
+      if(!updated){
+        try{
+          Method m=bf.getClass().getDeclaredMethod("updateRows");
           m.setAccessible(true);
-          if(m.getParameterTypes().length==1)m.invoke(bf,Boolean.TRUE);
-          else if(m.getParameterTypes().length==0)m.invoke(bf);
-        }
+          m.invoke(bf);
+        }catch(Throwable ignored){}
       }
       NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
     }catch(Throwable ignored){}
