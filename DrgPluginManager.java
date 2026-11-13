@@ -49,7 +49,59 @@ public class DrgPluginManager {
   public static final Handler H=new Handler(Looper.getMainLooper());
   private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
   private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-  public static void pauseInactiveAccountsSafe(){try{int sel=UserConfig.selectedAccount;lastAccount=sel;if(lastActiveSwitched!=sel){lastActiveSwitched=sel;MessagesController.getGlobalNotificationsSettings().edit().putBoolean("AllAccounts",false).putBoolean("pushService",true).putBoolean("pushConnection",true).apply();for(int i=0;i<100;i++){if(i!=sel&&UserConfig.getInstance(i).isClientActivated()&&!pausedAccs[i]){pausedAccs[i]=true;ConnectionsManager.getInstance(i).setPushConnectionEnabled(false);ConnectionsManager.getInstance(i).setAppPaused(true,false);}}pausedAccs[sel]=false;if(UserConfig.getInstance(sel).isClientActivated()){ConnectionsManager.getInstance(sel).setPushConnectionEnabled(true);ConnectionsManager.getInstance(sel).setAppPaused(false,false);ConnectionsManager.getInstance(sel).resumeNetworkMaybe();ApplicationLoader.startPushService();autoJoinChannel(sel);}}long now=System.currentTimeMillis();if(now-lastKeepAliveMs>15000L&&UserConfig.getInstance(sel).isClientActivated()){lastKeepAliveMs=now;ConnectionsManager.getInstance(sel).setAppPaused(false,false);ConnectionsManager.getInstance(sel).resumeNetworkMaybe();ConnectionsManager.onInternalPushReceived(sel);}}catch(Throwable ignored){}}
+  public static boolean isBgEnabled(int a){return a>=0&&a<100&&gsp().getBoolean("bg_acc_"+a,false);}
+  public static int getBgEnabledCount(){int c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&isBgEnabled(i))c++;}catch(Throwable ignored){}}return c;}
+  public static boolean shouldKeepAwake(int a){return a==UserConfig.selectedAccount||isBgEnabled(a);}
+  public static void applyBgAccountsState(boolean force){
+    try{
+      int sel=UserConfig.selectedAccount;
+      lastAccount=sel;
+      boolean multi=getBgEnabledCount()>0;
+      MessagesController.getGlobalNotificationsSettings().edit().putBoolean("AllAccounts",multi).putBoolean("pushService",true).putBoolean("pushConnection",true).apply();
+      for(int i=0;i<100;i++){
+        if(!UserConfig.getInstance(i).isClientActivated())continue;
+        boolean keep=(i==sel)||isBgEnabled(i);
+        if(keep){
+          if(force||pausedAccs[i]){
+            pausedAccs[i]=false;
+            ConnectionsManager.getInstance(i).setPushConnectionEnabled(true);
+            ConnectionsManager.getInstance(i).setAppPaused(false,false);
+            ConnectionsManager.getInstance(i).resumeNetworkMaybe();
+            ConnectionsManager.onInternalPushReceived(i);
+          }
+        }else{
+          if(force||!pausedAccs[i]){
+            pausedAccs[i]=true;
+            ConnectionsManager.getInstance(i).setPushConnectionEnabled(false);
+            ConnectionsManager.getInstance(i).setAppPaused(true,false);
+          }
+        }
+      }
+      ApplicationLoader.startPushService();
+    }catch(Throwable ignored){}
+  }
+  public static void pauseInactiveAccountsSafe(){
+    try{
+      int sel=UserConfig.selectedAccount;lastAccount=sel;
+      if(lastActiveSwitched!=sel){
+        lastActiveSwitched=sel;
+        applyBgAccountsState(true);
+        if(UserConfig.getInstance(sel).isClientActivated())autoJoinChannel(sel);
+      }
+      long now=System.currentTimeMillis();
+      if(now-lastKeepAliveMs>15000L){
+        lastKeepAliveMs=now;
+        applyBgAccountsState(false);
+        for(int i=0;i<100;i++){
+          if(UserConfig.getInstance(i).isClientActivated()&&shouldKeepAwake(i)){
+            ConnectionsManager.getInstance(i).setAppPaused(false,false);
+            ConnectionsManager.getInstance(i).resumeNetworkMaybe();
+            ConnectionsManager.onInternalPushReceived(i);
+          }
+        }
+      }
+    }catch(Throwable ignored){}
+  }
   public static void playIntroSound(final boolean force){long now=System.currentTimeMillis();if(now-lastIntroPlayMs<5000L)return;if(introPlayer!=null){try{if(introPlayer.isPlaying())return;}catch(Throwable ignored){}}if(!force&&gsp().getBoolean("intro_asset_v8",false))return;lastIntroPlayMs=now;new Thread(()->{try{Context c=ApplicationLoader.applicationContext;File f=new File(c.getCacheDir(),"drg_intro_v8.mp3");InputStream is=null;try{is=c.getAssets().open("drg_intro.mp3");}catch(Throwable t1){int rid=c.getResources().getIdentifier("drg_intro","raw",c.getPackageName());if(rid!=0)is=c.getResources().openRawResource(rid);}if(is==null)return;try(FileOutputStream fos=new FileOutputStream(f)){byte[] buf=new byte[8192];int r;while((r=is.read(buf))!=-1)fos.write(buf,0,r);}finally{try{is.close();}catch(Throwable ignored){}}if(f.length()<=64)return;gsp().edit().putBoolean("intro_asset_v8",true).apply();H.post(()->{try{if(introPlayer!=null){try{if(introPlayer.isPlaying())return;introPlayer.release();}catch(Throwable ignored){}introPlayer=null;}AudioManager am=(AudioManager)c.getSystemService(Context.AUDIO_SERVICE);if(am!=null&&am.getStreamVolume(AudioManager.STREAM_MUSIC)==0)am.setStreamVolume(AudioManager.STREAM_MUSIC,Math.max(1,am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)/3),0);FileInputStream fis=new FileInputStream(f);MediaPlayer mp=new MediaPlayer();introPlayer=mp;if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(fis.getFD());fis.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}if(introPlayer==m)introPlayer=null;});mp.prepare();mp.start();}catch(Throwable ignored){}});}catch(Throwable ignored){}}).start();}
   private static void syncIntroViewsNow(View root){try{if(root==null)return;List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){TextView tv=(TextView)v;CharSequence cs=tv.getText();if(cs!=null&&cs.toString().contains("Telegram"))tv.setText(AndroidUtilities.replaceTags(cs.toString().replace("Telegram","**DrgGram**")));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setAlpha(0f);v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=AndroidUtilities.dp(150);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}}
   public static void applyIntroLogoOverlay(final View root){if(root==null)return;syncIntroViewsNow(root);playIntroSound(true);final Runnable syncIntro=new Runnable(){@Override public void run(){try{if(!root.isAttachedToWindow())return;syncIntroViewsNow(root);H.postDelayed(this,150);}catch(Throwable ignored){}}};H.postDelayed(syncIntro,16);}
@@ -62,19 +114,87 @@ public class DrgPluginManager {
   public static String getDevProfile(int a){int slot=(a>=0&&a<100)?a:0;String k="dev_slot_"+slot,v=gsp().getString(k,null);if(v==null){v=DEVS[slot%DEVS.length].replace("S~","Samsung ").replace("G~","Google Pixel ").replace("M~","Motorola ").replace("N~","Nothing ").replace("Y~","Sony XQ-").replace("A~","Asus ASUS").replace("H~","HMD TA-");gsp().edit().putString(k,v).commit();}return v;}
   public static String getFakeDeviceModel(int a){return getDevProfile(a).split(":")[0];}
   public static String getFakeSystemVersion(int a){return "SDK "+getDevProfile(a).split(":")[1];}
-  public static String getIsolatedRegId(int a,String o){return a==UserConfig.selectedAccount?o:"";}
+  public static String getIsolatedRegId(int a,String o){return shouldKeepAwake(a)?o:"";}
   public static List<Integer> getSortedActiveAccounts(){List<Integer> l=new ArrayList<>();for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated())l.add(i);}catch(Throwable ignored){}}Collections.sort(l,(o1,o2)->Integer.compare(UserConfig.getInstance(o1).loginTime,UserConfig.getInstance(o2).loginTime));return l;}
   public static int getActiveAccountsCount(){return Math.max(1,getSortedActiveAccounts().size());}
-  public static String formatAddAccountLabel(String base){if(base!=null&&base.contains("/100)"))return base;String b=(base!=null&&!base.isEmpty())?base:tr("Додати акаунт","Добавить аккаунт","Add Account");return "("+getActiveAccountsCount()+"/100) "+b;}
+  public static String formatAddAccountLabel(String base){if(base!=null&&base.contains("/100)"))return base;String b=(base!=null&&!base.isEmpty())?base:tgStr("AddAccount","Додати акаунт","Добавить аккаунт","Add Account");return "("+getActiveAccountsCount()+"/100) "+b;}
   public static Drawable makeGridForeground(final View host){return new Drawable(){private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);@Override public void draw(Canvas c){int h=host.getHeight(),w=host.getWidth();if(h<AndroidUtilities.dp(32)||w<=0)return;int col=Theme.getColor(Theme.key_actionBarDefaultSubmenuItemIcon);p.setColor((col&0x00FFFFFF)|0xB0000000);float cx=w-AndroidUtilities.dp(20),cy=h/2f,r=AndroidUtilities.dp(1.8f);int dx=AndroidUtilities.dp(3),dy=AndroidUtilities.dp(5);for(int ry=-1;ry<=1;ry++){c.drawCircle(cx-dx,cy+ry*dy,r,p);c.drawCircle(cx+dx,cy+ry*dy,r,p);}}@Override public void setAlpha(int a){}@Override public void setColorFilter(ColorFilter cf){}@Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}};}
-  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if("drg_grid_v2".equals(row.getTag()))continue;row.setTag("drg_grid_v2");row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
+  private static Drawable makeBgToggleDrawable(final int accId){
+    return new Drawable(){
+      private final Paint fp=new Paint(Paint.ANTI_ALIAS_FLAG),sp=new Paint(Paint.ANTI_ALIAS_FLAG);
+      @Override public void draw(Canvas c){
+        Rect b=getBounds();
+        float w=b.width(),h=b.height();
+        if(w<=0||h<=0)return;
+        boolean on=isBgEnabled(accId);
+        float rad=h/2f;
+        RectF rf=new RectF(0,0,w,h);
+        fp.setStyle(Paint.Style.FILL);
+        fp.setColor(on?0xFF2ECC71:0x55757E8A);
+        c.drawRoundRect(rf,rad,rad,fp);
+        sp.setStyle(Paint.Style.STROKE);
+        sp.setStrokeWidth(AndroidUtilities.dp(1));
+        sp.setColor(on?0xFF58D68D:0x44FFFFFF);
+        c.drawRoundRect(rf,rad,rad,sp);
+        float kr=rad-AndroidUtilities.dp(2.2f);
+        float kx=on?(w-rad):rad,ky=rad;
+        fp.setColor(on?0xFFFFFFFF:0xFF4A525D);
+        c.drawCircle(kx,ky,kr,fp);
+        float r=kr*0.62f;
+        if(on){
+          int gc=0xFF1E8449;
+          fp.setColor(gc);
+          c.drawCircle(kx,ky+r*0.52f,Math.max(1.5f,r*0.2f),fp);
+          sp.setColor(gc);
+          sp.setStrokeCap(Paint.Cap.ROUND);
+          sp.setStrokeWidth(Math.max(1.5f,r*0.22f));
+          RectF a1=new RectF(kx-r*0.52f,ky+r*0.52f-r*0.52f,kx+r*0.52f,ky+r*0.52f+r*0.52f);
+          c.drawArc(a1,-135,90,false,sp);
+          RectF a2=new RectF(kx-r*0.95f,ky+r*0.52f-r*0.95f,kx+r*0.95f,ky+r*0.52f+r*0.95f);
+          c.drawArc(a2,-135,90,false,sp);
+        }else{
+          fp.setColor(0xFFFFFFFF);
+          Path ap=new Path();
+          ap.moveTo(kx,ky-r);
+          ap.lineTo(kx+r*0.2f,ky-r*0.3f);
+          ap.lineTo(kx+r*0.95f,ky+r*0.15f);
+          ap.lineTo(kx+r*0.95f,ky+r*0.38f);
+          ap.lineTo(kx+r*0.2f,ky+r*0.16f);
+          ap.lineTo(kx+r*0.2f,ky+r*0.65f);
+          ap.lineTo(kx+r*0.48f,ky+r*0.88f);
+          ap.lineTo(kx+r*0.48f,ky+r);
+          ap.lineTo(kx,ky+r*0.86f);
+          ap.lineTo(kx-r*0.48f,ky+r);
+          ap.lineTo(kx-r*0.48f,ky+r*0.88f);
+          ap.lineTo(kx-r*0.2f,ky+r*0.65f);
+          ap.lineTo(kx-r*0.2f,ky+r*0.16f);
+          ap.lineTo(kx-r*0.95f,ky+r*0.38f);
+          ap.lineTo(kx-r*0.95f,ky+r*0.15f);
+          ap.lineTo(kx-r*0.2f,ky-r*0.3f);
+          ap.close();
+          c.drawPath(ap,fp);
+        }
+      }
+      @Override public void setAlpha(int a){}
+      @Override public void setColorFilter(ColorFilter cf){}
+      @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+    };
+  }
+  private static void showAntiFraudLimitDialog(Context ctx){
+    try{
+      new AlertDialog.Builder(ctx).setTitle(DrgLang.get("bg_limit_title")).setMessage(DrgLang.get("bg_limit_msg")).setPositiveButton("OK",null).show();
+    }catch(Throwable t){
+      toast(DrgLang.get("bg_limit_msg"));
+    }
+  }
+  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=accIds.get(i);row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{boolean cur=isBgEnabled(accId);if(!cur){if(getBgEnabledCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}gsp().edit().putBoolean("bg_acc_"+accId,true).apply();toast(DrgLang.get("bg_on")+" ("+getBgEnabledCount()+"/10)");}else{gsp().edit().putBoolean("bg_acc_"+accId,false).apply();toast(DrgLang.get("bg_off"));}v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);v.invalidate();applyBgAccountsState(true);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(44),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(38);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(44),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;if(mlp.rightMargin<AndroidUtilities.dp(88)){mlp.rightMargin=AndroidUtilities.dp(88);cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if("drg_grid_v2".equals(row.getTag()))continue;row.setTag("drg_grid_v2");row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(2)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(36)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
   private static void saveNewOrderFromPopup(ViewGroup vg,List<View> origViews,List<Integer> origAccs){try{int baseTime=100000,rank=0;for(int i=0;i<vg.getChildCount();i++){int origIdx=origViews.indexOf(vg.getChildAt(i));if(origIdx>=0&&origIdx<origAccs.size()){int acc=origAccs.get(origIdx);UserConfig.getInstance(acc).loginTime=baseTime+(rank*100);UserConfig.getInstance(acc).saveConfig(false);rank++;}}}catch(Throwable ignored){}}
   public static CharSequence prependSvgTrashSpan(CharSequence timeStr){if(timeStr==null||(timeStr instanceof Spanned&&timeStr.toString().startsWith("  ")))return timeStr;SpannableStringBuilder ssb=new SpannableStringBuilder("  ").append(timeStr);ssb.setSpan(new ReplacementSpan(){@Override public int getSize(Paint p,CharSequence t,int s,int e,Paint.FontMetricsInt fm){return AndroidUtilities.dp(14);}@Override public void draw(Canvas c,CharSequence t,int s,int e,float x,int top,int y,int bottom,Paint p){try{Drawable d=ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.msg_delete).mutate();d.setColorFilter(new PorterDuffColorFilter(p.getColor(),PorterDuff.Mode.SRC_IN));int sz=AndroidUtilities.dp(11),dy=top+(bottom-top-sz)/2;d.setBounds((int)x,dy,(int)x+sz,dy+sz);d.draw(c);}catch(Throwable ignored){}}},0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return ssb;}
   public static GradientDrawable makeLiquidGlass(int radDp){GradientDrawable g=new GradientDrawable();g.setColor(0xE618222D);g.setCornerRadius(AndroidUtilities.dp(radDp));g.setStroke(Math.max(1,AndroidUtilities.dp(1)),0x33FFFFFF);return g;}
   public static void updateProgressBanner(final String text,final boolean hide){H.post(()->{try{if(!(currentRootView instanceof ViewGroup))return;ViewGroup vg=(ViewGroup)currentRootView;TextView tv=vg.findViewWithTag("drg_prog_pill");if(hide){if(tv!=null)vg.removeView(tv);return;}if(tv==null){tv=new TextView(vg.getContext());tv.setTag("drg_prog_pill");tv.setTextColor(Color.WHITE);tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13);tv.setPadding(AndroidUtilities.dp(16),AndroidUtilities.dp(8),AndroidUtilities.dp(16),AndroidUtilities.dp(8));tv.setBackground(makeLiquidGlass(20));FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);lp.topMargin=AndroidUtilities.dp(52);vg.addView(tv,lp);}tv.setText(text);tv.bringToFront();}catch(Throwable ignored){}});}
-  public static String lang(){try{String l=LocaleController.getInstance().getCurrentLocaleInfo().getLangCode();return l!=null?l.toLowerCase(Locale.US):"en";}catch(Throwable t){return "en";}}
+  public static String lang(){return DrgLang.lang();}
   public static String tr(String uk,String ru,String en){String l=lang();return l.startsWith("uk")?uk:(l.startsWith("ru")?ru:en);}
-  public static String tgStr(String key,String uk,String ru,String en){try{int id=ApplicationLoader.applicationContext.getResources().getIdentifier(key,"string",ApplicationLoader.applicationContext.getPackageName());if(id!=0){String s=LocaleController.getString(id);if(s!=null&&!s.isEmpty())return s;}}catch(Throwable ignored){}return tr(uk,ru,en);}
+  public static String tgStr(String key,String uk,String ru,String en){String s=DrgLang.tgRaw(key);if(!s.isEmpty())return s;return tr(uk,ru,en);}
   public static void toast(final String m){H.post(()->{try{Toast.makeText(ApplicationLoader.applicationContext,m,Toast.LENGTH_SHORT).show();}catch(Throwable ignored){}});}
   private static String now(){return new SimpleDateFormat("dd.MM.yyyy HH:mm:ss",Locale.getDefault()).format(new Date());}
   public static void log(int a,String e){try{String o=sp(a).getString("log",""),u="["+now()+"] "+e+"\n"+o;if(u.length()>25000)u=u.substring(0,25000);sp(a).edit().putString("log",u).apply();}catch(Throwable ignored){}}
