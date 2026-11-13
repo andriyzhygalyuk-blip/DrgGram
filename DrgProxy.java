@@ -30,6 +30,11 @@ import java.util.regex.*;
 public class DrgProxy {
   private static final Map<String,String> countryCache=Collections.synchronizedMap(new HashMap<>());
   private static final Set<View> attachedRoots=Collections.newSetFromMap(new WeakHashMap<>());
+  private static final Map<Object,Runnable> recheckMap=Collections.synchronizedMap(new WeakHashMap<>());
+
+  public static void regRecheck(Object frag,Runnable r){
+    if(frag!=null&&r!=null)recheckMap.put(frag,r);
+  }
 
   public static Drawable makeSvg(final int type,final int color){
     return new Drawable(){
@@ -274,8 +279,8 @@ public class DrgProxy {
     SharedConfig.loadProxyList();
     long expired=SystemClock.elapsedRealtime()-300000L;
     for(SharedConfig.ProxyInfo p:SharedConfig.proxyList){
-      pSet(p,Boolean.FALSE,"checking");
-      pSet(p,Long.valueOf(expired),"availableCheckTime");
+      p.checking=false;
+      p.availableCheckTime=expired;
     }
     refreshNativeProxyList(bf,true);
     DrgPluginManager.toast(tr("Оновлення списку проксі...","Обновление списка прокси...","Refreshing proxy list..."));
@@ -287,10 +292,7 @@ public class DrgProxy {
     for(int i=SharedConfig.proxyList.size()-1;i>=0;i--){
       SharedConfig.ProxyInfo p=SharedConfig.proxyList.get(i);
       if(p==SharedConfig.currentProxy&&SharedConfig.isProxyEnabled())continue;
-      boolean chk=pBool(p,"checking");
-      boolean hasAv=hasField(p,"available");
-      boolean av=hasAv?pBool(p,"available"):true;
-      if(!chk&&hasAv&&!av){
+      if(!p.checking&&!p.available){
         SharedConfig.deleteProxy(p);
         removed++;
       }
@@ -431,11 +433,16 @@ public class DrgProxy {
   private static void refreshNativeProxyList(BaseFragment bf,boolean recheck){
     try{
       if(recheck){
-        try{
-          Method m=bf.getClass().getDeclaredMethod("checkProxyList");
-          m.setAccessible(true);
-          m.invoke(bf);
-        }catch(Throwable ignored){}
+        Runnable r=recheckMap.get(bf);
+        if(r!=null){
+          r.run();
+        }else{
+          try{
+            Method m=bf.getClass().getDeclaredMethod("checkProxyList");
+            m.setAccessible(true);
+            m.invoke(bf);
+          }catch(Throwable ignored){}
+        }
       }
       boolean updated=false;
       try{
@@ -458,7 +465,6 @@ public class DrgProxy {
   private static void collect(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collect(vg.getChildAt(i),out);}}
   private static Object getSettingsObj(Object p){if(p==null)return null;try{for(Field f:p.getClass().getDeclaredFields()){if(f.getType().getSimpleName().contains("ProxySettings")){f.setAccessible(true);Object v=f.get(p);if(v!=null)return v;}}}catch(Throwable ignored){}return p;}
   private static Field findField(Class<?> cls,String n){while(cls!=null&&cls!=Object.class){try{Field f=cls.getDeclaredField(n);f.setAccessible(true);return f;}catch(Throwable ignored){}cls=cls.getSuperclass();}return null;}
-  private static boolean hasField(Object p,String n){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t!=null&&findField(t.getClass(),n)!=null)return true;}return false;}
   private static long pLong(Object p,String... nms){if(p==null)return 0L;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null)return f.getLong(t);}catch(Throwable ignored){}}}return 0L;}
   private static boolean pBool(Object p,String... nms){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null)return f.getBoolean(t);}catch(Throwable ignored){}}}return false;}
   private static void pSet(Object p,Object val,String... nms){if(p==null)return;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null){f.set(t,val);return;}}catch(Throwable ignored){}}}}
