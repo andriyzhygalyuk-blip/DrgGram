@@ -39,17 +39,17 @@ public class DrgPluginManager {
   private static PowerManager.WakeLock wakeLock=null;
   private static boolean started=false,inChunkDel=false;
   private static volatile boolean bgCacheReady=false;
-  private static final boolean[] obsAccounts=new boolean[100],pausedAccs=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
+  private static final boolean[] obsAccounts=new boolean[100],pausedAccs=new boolean[100],wasAwakeInSession=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
   private static final float[] vRing=new float[8192];
-  private static int vWrite=0;
+  private static int vWrite=0,bgQueueCursor=0;
   private static double vPhase=0.0,vRobPhase=0.0,vLp1=0.0,vLp2=0.0;
   private static final Map<String,Boolean> onlineMap=new HashMap<>();
   private static final Map<String,Long> onlineSince=new HashMap<>();
   private static final Set<Integer> mutedHandled=Collections.synchronizedSet(new HashSet<>());
   private static final Set<String> sessionChecked=Collections.synchronizedSet(new HashSet<>());
   private static final Set<View> hookedAccRows=Collections.newSetFromMap(new WeakHashMap<>());
+  private static final Object BG_TOKEN=new Object();
   public static final Handler H=new Handler(Looper.getMainLooper());
-  private static final Runnable bgApplyTask=()->applyBgAccountsState(false);
   private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
   private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
   private static void ensureBgCache(){
@@ -81,9 +81,10 @@ public class DrgPluginManager {
   public static int getTotalActiveCount(){ensureBgCache();int sel=UserConfig.selectedAccount,c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&(i==sel||bgPrefCache[i]))c++;}catch(Throwable ignored){}}return c;}
   public static boolean isAccountEffectivelyActive(int a){if(a<0||a>=100)return false;ensureBgCache();return effectiveActiveCache[a];}
   public static boolean shouldKeepAwake(int a){return isAccountEffectivelyActive(a);}
-  private static void wakeAccountNow(final int i){
+  private static void wakeAccountNow(final int i,final boolean syncPush){
     try{
       if(!UserConfig.getInstance(i).isClientActivated()||!isAccountEffectivelyActive(i))return;
+      wasAwakeInSession[i]=true;
       pausedAccs[i]=false;
       MessagesController.getInstance(i);
       NotificationsController.getInstance(i);
@@ -91,11 +92,12 @@ public class DrgPluginManager {
       cm.setPushConnectionEnabled(true);
       cm.setAppPaused(false,false);
       cm.resumeNetworkMaybe();
-      ConnectionsManager.onInternalPushReceived(i);
+      if(syncPush)ConnectionsManager.onInternalPushReceived(i);
     }catch(Throwable ignored){}
   }
   private static void pauseAccountNow(final int i){
     try{
+      if(!wasAwakeInSession[i])return;
       if(!UserConfig.getInstance(i).isClientActivated()||isAccountEffectivelyActive(i))return;
       pausedAccs[i]=true;
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
@@ -104,9 +106,40 @@ public class DrgPluginManager {
       cm.setAppPaused(true,false);
     }catch(Throwable ignored){}
   }
-  public static void applyBgAccountsState(final boolean force){
+  private static final Runnable bgStepRunner=new Runnable(){
+    @Override public void run(){
+      try{
+        ensureBgCache();
+        int sel=UserConfig.selectedAccount;
+        while(bgQueueCursor<100){
+          int i=bgQueueCursor++;
+          if(i==sel)continue;
+          boolean act=false;
+          try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
+          if(!act)continue;
+          if(effectiveActiveCache[i]){
+            if(!wasAwakeInSession[i]||pausedAccs[i]){
+              wakeAccountNow(i,true);
+              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+750L);
+              return;
+            }
+          }else{
+            if(wasAwakeInSession[i]&&!pausedAccs[i]){
+              pauseAccountNow(i);
+              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+120L);
+              return;
+            }
+          }
+        }
+      }catch(Throwable ignored){}
+    }
+  };
+  private static final Runnable bgStartRunner=()->applyBgAccountsState(false);
+  public static void applyBgAccountsState(final boolean immediate){
     try{
       ensureBgCache();
+      H.removeCallbacks(bgStartRunner);
+      H.removeCallbacksAndMessages(BG_TOKEN);
       int sel=UserConfig.selectedAccount;
       lastAccount=sel;
       if(!gsp().getBoolean("bg_init_v1",false)&&UserConfig.getInstance(sel).isClientActivated()){
@@ -116,33 +149,12 @@ public class DrgPluginManager {
       refreshEffectiveCache();
       SharedConfig.showNotificationsForAllAccounts=true;
       MessagesController.getGlobalNotificationsSettings().edit().putBoolean("AllAccounts",true).putBoolean("pushService",true).putBoolean("pushConnection",true).apply();
-      int stagger=0;
-      for(int i=0;i<100;i++){
-        boolean act=false;
-        try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
-        if(!act)continue;
-        boolean keep=effectiveActiveCache[i];
-        if(keep){
-          if(force||pausedAccs[i]){
-            pausedAccs[i]=false;
-            final int acc=i;
-            if(acc==sel){
-              wakeAccountNow(acc);
-            }else{
-              int delay=100+(stagger*220);
-              stagger++;
-              H.postDelayed(()->wakeAccountNow(acc),delay);
-            }
-          }
-        }else{
-          if(force||!pausedAccs[i]){
-            pausedAccs[i]=true;
-            final int acc=i;
-            H.post(()->pauseAccountNow(acc));
-          }
-        }
+      if(UserConfig.getInstance(sel).isClientActivated()){
+        wakeAccountNow(sel,false);
       }
-      H.postDelayed(()->{try{ApplicationLoader.startPushService();}catch(Throwable ignored){}},80);
+      bgQueueCursor=0;
+      H.postAtTime(bgStepRunner,BG_TOKEN,SystemClock.uptimeMillis()+(immediate?250L:450L));
+      H.postAtTime(()->{try{ApplicationLoader.startPushService();}catch(Throwable ignored){}},BG_TOKEN,SystemClock.uptimeMillis()+350L);
     }catch(Throwable ignored){}
   }
   public static void pauseInactiveAccountsSafe(){
@@ -150,27 +162,18 @@ public class DrgPluginManager {
       ensureBgCache();
       int sel=UserConfig.selectedAccount;lastAccount=sel;
       if(lastActiveSwitched!=sel){
+        if(lastActiveSwitched>=0&&lastActiveSwitched<100)wasAwakeInSession[lastActiveSwitched]=true;
         lastActiveSwitched=sel;
-        refreshEffectiveCache();
+        wasAwakeInSession[sel]=true;
         applyBgAccountsState(true);
         if(UserConfig.getInstance(sel).isClientActivated())autoJoinChannel(sel);
       }
       long now=System.currentTimeMillis();
-      if(now-lastKeepAliveMs>15000L){
+      if(now-lastKeepAliveMs>30000L){
         lastKeepAliveMs=now;
         refreshEffectiveCache();
-        int stagger=0;
-        for(int i=0;i<100;i++){
-          boolean act=false;
-          try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
-          if(!act)continue;
-          if(effectiveActiveCache[i]){
-            final int acc=i;
-            if(acc==sel)wakeAccountNow(acc);
-            else{H.postDelayed(()->wakeAccountNow(acc),150+(stagger*180));stagger++;}
-          }else if(!pausedAccs[i]){
-            pauseAccountNow(i);
-          }
+        if(UserConfig.getInstance(sel).isClientActivated()){
+          ConnectionsManager.getInstance(sel).setAppPaused(false,false);
         }
       }
     }catch(Throwable ignored){}
@@ -178,7 +181,7 @@ public class DrgPluginManager {
   public static void playIntroSound(final boolean force){long now=System.currentTimeMillis();if(now-lastIntroPlayMs<5000L)return;if(introPlayer!=null){try{if(introPlayer.isPlaying())return;}catch(Throwable ignored){}}if(!force&&gsp().getBoolean("intro_asset_v8",false))return;lastIntroPlayMs=now;new Thread(()->{try{Context c=ApplicationLoader.applicationContext;File f=new File(c.getCacheDir(),"drg_intro_v8.mp3");InputStream is=null;try{is=c.getAssets().open("drg_intro.mp3");}catch(Throwable t1){int rid=c.getResources().getIdentifier("drg_intro","raw",c.getPackageName());if(rid!=0)is=c.getResources().openRawResource(rid);}if(is==null)return;try(FileOutputStream fos=new FileOutputStream(f)){byte[] buf=new byte[8192];int r;while((r=is.read(buf))!=-1)fos.write(buf,0,r);}finally{try{is.close();}catch(Throwable ignored){}}if(f.length()<=64)return;gsp().edit().putBoolean("intro_asset_v8",true).apply();H.post(()->{try{if(introPlayer!=null){try{if(introPlayer.isPlaying())return;introPlayer.release();}catch(Throwable ignored){}introPlayer=null;}AudioManager am=(AudioManager)c.getSystemService(Context.AUDIO_SERVICE);if(am!=null&&am.getStreamVolume(AudioManager.STREAM_MUSIC)==0)am.setStreamVolume(AudioManager.STREAM_MUSIC,Math.max(1,am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)/3),0);FileInputStream fis=new FileInputStream(f);MediaPlayer mp=new MediaPlayer();introPlayer=mp;if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(fis.getFD());fis.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}if(introPlayer==m)introPlayer=null;});mp.prepare();mp.start();}catch(Throwable ignored){}});}catch(Throwable ignored){}}).start();}
   private static void syncIntroViewsNow(View root){try{if(root==null)return;List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){TextView tv=(TextView)v;CharSequence cs=tv.getText();if(cs!=null&&cs.toString().contains("Telegram"))tv.setText(AndroidUtilities.replaceTags(cs.toString().replace("Telegram","**DrgGram**")));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setAlpha(0f);v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=AndroidUtilities.dp(150);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}}
   public static void applyIntroLogoOverlay(final View root){if(root==null)return;syncIntroViewsNow(root);playIntroSound(true);final Runnable syncIntro=new Runnable(){@Override public void run(){try{if(!root.isAttachedToWindow())return;syncIntroViewsNow(root);H.postDelayed(this,150);}catch(Throwable ignored){}}};H.postDelayed(syncIntro,16);}
-  public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();pauseInactiveAccountsSafe();H.postDelayed(()->pauseInactiveAccountsSafe(),3000);syncDocChannelAndJoinAll(true);}
+  public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();H.postDelayed(()->pauseInactiveAccountsSafe(),1500);syncDocChannelAndJoinAll(true);}
   public static void onDialogsResume(){inChatScreen=false;pauseInactiveAccountsSafe();}
   private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
   public static void syncDocChannelAndJoinAll(final boolean forceFetch){long now=System.currentTimeMillis();if(!forceFetch&&now-lastDocFetchMs<60000L&&!dynamicChannelTarget.isEmpty()){autoJoinChannel(UserConfig.selectedAccount);return;}lastDocFetchMs=now;new Thread(()->{try{HttpURLConnection con=(HttpURLConnection)new URL(DOC_URL).openConnection();con.setConnectTimeout(7000);con.setReadTimeout(7000);con.setInstanceFollowRedirects(true);try(BufferedReader br=new BufferedReader(new InputStreamReader(con.getInputStream(),"UTF-8"))){StringBuilder sb=new StringBuilder();String ln;while((ln=br.readLine())!=null)sb.append(ln).append(" ");String txt=sb.toString().trim();String target=parseTargetFromDoc(txt);if(!target.isEmpty()){dynamicChannelTarget=target;gsp().edit().putString("cached_doc_target",target).apply();}}}catch(Throwable ignored){if(dynamicChannelTarget.isEmpty())dynamicChannelTarget=gsp().getString("cached_doc_target","");}H.post(()->{try{autoJoinChannel(UserConfig.selectedAccount);}catch(Throwable ignored){}});}).start();}
@@ -299,7 +302,7 @@ public class DrgPluginManager {
       toast(DrgLang.get("bg_sel_err"));
     }
   }
-  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;ensureBgCache();try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final int minW=AndroidUtilities.dp(242);if(vg.getMinimumWidth()<minW){vg.setMinimumWidth(minW);vg.requestLayout();}if(vg.getParent() instanceof View){View pv=(View)vg.getParent();if(pv.getMinimumWidth()<minW){pv.setMinimumWidth(minW);pv.requestLayout();}}if(addAccItem.getMinimumWidth()<minW)addAccItem.setMinimumWidth(minW);final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=getRowAccountId(row,accIds.get(i));if(row.getMinimumWidth()<minW)row.setMinimumWidth(minW);if(row.getLayoutParams()!=null&&row.getLayoutParams().width!=ViewGroup.LayoutParams.MATCH_PARENT){row.getLayoutParams().width=ViewGroup.LayoutParams.MATCH_PARENT;row.requestLayout();}if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{ensureBgCache();int sel=UserConfig.selectedAccount;if(accId==sel){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showSelectedAccountErrDialog(v.getContext());return;}boolean curPinned=bgPrefCache[accId];if(!curPinned){if(getTotalActiveCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}bgPrefCache[accId]=true;gsp().edit().putBoolean("bg_acc_"+accId,true).apply();}else{bgPrefCache[accId]=false;gsp().edit().putBoolean("bg_acc_"+accId,false).apply();}refreshEffectiveCache();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);v.invalidate();H.removeCallbacks(bgApplyTask);H.postDelayed(bgApplyTask,140);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else if(rg instanceof LinearLayout){LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24));tlp.gravity=Gravity.CENTER_VERTICAL;tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){if(cv instanceof TextView){TextView ntv=(TextView)cv;ntv.setSingleLine(true);ntv.setMaxLines(1);ntv.setEllipsize(TextUtils.TruncateAt.END);}ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;int needRight=rg instanceof LinearLayout?AndroidUtilities.dp(26):AndroidUtilities.dp(74);if(mlp.rightMargin<needRight){mlp.rightMargin=needRight;cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if(!hookedAccRows.add(row))continue;row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(4)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(74)&&ev.getX()<v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
+  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;ensureBgCache();try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final int minW=AndroidUtilities.dp(242);if(vg.getMinimumWidth()<minW){vg.setMinimumWidth(minW);vg.requestLayout();}if(vg.getParent() instanceof View){View pv=(View)vg.getParent();if(pv.getMinimumWidth()<minW){pv.setMinimumWidth(minW);pv.requestLayout();}}if(addAccItem.getMinimumWidth()<minW)addAccItem.setMinimumWidth(minW);final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=getRowAccountId(row,accIds.get(i));if(row.getMinimumWidth()<minW)row.setMinimumWidth(minW);if(row.getLayoutParams()!=null&&row.getLayoutParams().width!=ViewGroup.LayoutParams.MATCH_PARENT){row.getLayoutParams().width=ViewGroup.LayoutParams.MATCH_PARENT;row.requestLayout();}if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{ensureBgCache();int sel=UserConfig.selectedAccount;if(accId==sel){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showSelectedAccountErrDialog(v.getContext());return;}boolean curPinned=bgPrefCache[accId];if(!curPinned){if(getTotalActiveCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}bgPrefCache[accId]=true;gsp().edit().putBoolean("bg_acc_"+accId,true).apply();}else{bgPrefCache[accId]=false;gsp().edit().putBoolean("bg_acc_"+accId,false).apply();}refreshEffectiveCache();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);for(int k=0;k<vg.getChildCount();k++){View rc=vg.getChildAt(k);if(rc instanceof ViewGroup){View t2=((ViewGroup)rc).findViewWithTag("drg_bg_tgl");if(t2!=null)t2.invalidate();}}H.removeCallbacks(bgStartRunner);H.removeCallbacksAndMessages(BG_TOKEN);H.postDelayed(bgStartRunner,500L);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else if(rg instanceof LinearLayout){LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24));tlp.gravity=Gravity.CENTER_VERTICAL;tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){if(cv instanceof TextView){TextView ntv=(TextView)cv;ntv.setSingleLine(true);ntv.setMaxLines(1);ntv.setEllipsize(TextUtils.TruncateAt.END);}ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;int needRight=rg instanceof LinearLayout?AndroidUtilities.dp(26):AndroidUtilities.dp(74);if(mlp.rightMargin<needRight){mlp.rightMargin=needRight;cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if(!hookedAccRows.add(row))continue;row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(4)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(74)&&ev.getX()<v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
   private static void saveNewOrderFromPopup(ViewGroup vg,List<View> origViews,List<Integer> origAccs){try{int baseTime=100000,rank=0;for(int i=0;i<vg.getChildCount();i++){int origIdx=origViews.indexOf(vg.getChildAt(i));if(origIdx>=0&&origIdx<origAccs.size()){int acc=origAccs.get(origIdx);UserConfig.getInstance(acc).loginTime=baseTime+(rank*100);UserConfig.getInstance(acc).saveConfig(false);rank++;}}}catch(Throwable ignored){}}
   public static CharSequence prependSvgTrashSpan(CharSequence timeStr){if(timeStr==null||(timeStr instanceof Spanned&&timeStr.toString().startsWith("  ")))return timeStr;SpannableStringBuilder ssb=new SpannableStringBuilder("  ").append(timeStr);ssb.setSpan(new ReplacementSpan(){@Override public int getSize(Paint p,CharSequence t,int s,int e,Paint.FontMetricsInt fm){return AndroidUtilities.dp(14);}@Override public void draw(Canvas c,CharSequence t,int s,int e,float x,int top,int y,int bottom,Paint p){try{Drawable d=ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.msg_delete).mutate();d.setColorFilter(new PorterDuffColorFilter(p.getColor(),PorterDuff.Mode.SRC_IN));int sz=AndroidUtilities.dp(11),dy=top+(bottom-top-sz)/2;d.setBounds((int)x,dy,(int)x+sz,dy+sz);d.draw(c);}catch(Throwable ignored){}}},0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return ssb;}
   public static GradientDrawable makeLiquidGlass(int radDp){GradientDrawable g=new GradientDrawable();g.setColor(0xE618222D);g.setCornerRadius(AndroidUtilities.dp(radDp));g.setStroke(Math.max(1,AndroidUtilities.dp(1)),0x33FFFFFF);return g;}
