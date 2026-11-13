@@ -180,6 +180,7 @@ patch("ui/ActionBar/ActionBarMenuSubItem.java", r"(public\s+void\s+setTextAndIco
 patch("ui/ActionBar/ActionBarPopupWindow.java", r"(public\s+void\s+showAsDropDown\s*\([^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.onPopupShown(this);", 0)
 patch("ui/ActionBar/ActionBarPopupWindow.java", r"(public\s+void\s+showAtLocation\s*\([^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.onPopupShown(this);", 0)
 patch("ui/ActionBar/BottomSheet.java", r"(public\s+void\s+show\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.onBottomSheetShown(this);", 0)
+patch("ui/ProxyListActivity.java", r"(return\s+fragmentView\s*;)", r"org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView); \1", 0)
 patch("ui/ProxyListActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView);", 0)
 patch("messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
 patch("messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
