@@ -38,7 +38,8 @@ public class DrgPluginManager {
   private static MediaPlayer introPlayer=null;
   private static PowerManager.WakeLock wakeLock=null;
   private static boolean started=false,inChunkDel=false;
-  private static final boolean[] obsAccounts=new boolean[100],pausedAccs=new boolean[100];
+  private static volatile boolean bgCacheReady=false;
+  private static final boolean[] obsAccounts=new boolean[100],pausedAccs=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
   private static final float[] vRing=new float[8192];
   private static int vWrite=0;
   private static double vPhase=0.0,vRobPhase=0.0,vLp1=0.0,vLp2=0.0;
@@ -48,88 +49,127 @@ public class DrgPluginManager {
   private static final Set<String> sessionChecked=Collections.synchronizedSet(new HashSet<>());
   private static final Set<View> hookedAccRows=Collections.newSetFromMap(new WeakHashMap<>());
   public static final Handler H=new Handler(Looper.getMainLooper());
+  private static final Runnable bgApplyTask=()->applyBgAccountsState(false);
   private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
   private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
-  public static boolean isBgEnabled(int a){return a>=0&&a<100&&gsp().getBoolean("bg_acc_"+a,false);}
-  public static int getBgEnabledCount(){int c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&isBgEnabled(i))c++;}catch(Throwable ignored){}}return c;}
-  public static int getTotalActiveCount(){int sel=UserConfig.selectedAccount,c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&(i==sel||isBgEnabled(i)))c++;}catch(Throwable ignored){}}return c;}
-  public static boolean isAccountEffectivelyActive(int a){
-    if(a<0||a>=100)return false;
-    int sel=UserConfig.selectedAccount;
-    if(a==sel)return true;
-    if(!isBgEnabled(a))return false;
-    int slots=isBgEnabled(sel)?10:9;
-    int used=0;
-    for(int i=0;i<100;i++){
-      if(i==sel)continue;
-      try{
-        if(UserConfig.getInstance(i).isClientActivated()&&isBgEnabled(i)){
-          if(i==a)return used<slots;
-          used++;
-        }
-      }catch(Throwable ignored){}
-    }
-    return false;
-  }
-  public static boolean shouldKeepAwake(int a){return isAccountEffectivelyActive(a);}
-  public static void applyBgAccountsState(boolean force){
+  private static void ensureBgCache(){
+    if(bgCacheReady)return;
+    bgCacheReady=true;
     try{
+      SharedPreferences g=gsp();
+      for(int i=0;i<100;i++)bgPrefCache[i]=g.getBoolean("bg_acc_"+i,false);
+      refreshEffectiveCache();
+    }catch(Throwable ignored){}
+  }
+  private static void refreshEffectiveCache(){
+    try{
+      int sel=UserConfig.selectedAccount;
+      int slots=(sel>=0&&sel<100&&bgPrefCache[sel])?10:9;
+      int used=0;
+      for(int i=0;i<100;i++){
+        boolean act=false;
+        try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
+        if(!act){effectiveActiveCache[i]=false;continue;}
+        if(i==sel){effectiveActiveCache[i]=true;}
+        else if(bgPrefCache[i]&&used<slots){effectiveActiveCache[i]=true;used++;}
+        else{effectiveActiveCache[i]=false;}
+      }
+    }catch(Throwable ignored){}
+  }
+  public static boolean isBgEnabled(int a){if(a<0||a>=100)return false;ensureBgCache();return bgPrefCache[a];}
+  public static int getBgEnabledCount(){ensureBgCache();int c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&bgPrefCache[i])c++;}catch(Throwable ignored){}}return c;}
+  public static int getTotalActiveCount(){ensureBgCache();int sel=UserConfig.selectedAccount,c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&(i==sel||bgPrefCache[i]))c++;}catch(Throwable ignored){}}return c;}
+  public static boolean isAccountEffectivelyActive(int a){if(a<0||a>=100)return false;ensureBgCache();return effectiveActiveCache[a];}
+  public static boolean shouldKeepAwake(int a){return isAccountEffectivelyActive(a);}
+  private static void wakeAccountNow(final int i){
+    try{
+      if(!UserConfig.getInstance(i).isClientActivated()||!isAccountEffectivelyActive(i))return;
+      pausedAccs[i]=false;
+      MessagesController.getInstance(i);
+      NotificationsController.getInstance(i);
+      ConnectionsManager cm=ConnectionsManager.getInstance(i);
+      cm.setPushConnectionEnabled(true);
+      cm.setAppPaused(false,false);
+      cm.resumeNetworkMaybe();
+      ConnectionsManager.onInternalPushReceived(i);
+    }catch(Throwable ignored){}
+  }
+  private static void pauseAccountNow(final int i){
+    try{
+      if(!UserConfig.getInstance(i).isClientActivated()||isAccountEffectivelyActive(i))return;
+      pausedAccs[i]=true;
+      ConnectionsManager cm=ConnectionsManager.getInstance(i);
+      cm.setIsUpdating(false);
+      cm.setPushConnectionEnabled(false);
+      cm.setAppPaused(true,false);
+    }catch(Throwable ignored){}
+  }
+  public static void applyBgAccountsState(final boolean force){
+    try{
+      ensureBgCache();
       int sel=UserConfig.selectedAccount;
       lastAccount=sel;
       if(!gsp().getBoolean("bg_init_v1",false)&&UserConfig.getInstance(sel).isClientActivated()){
         gsp().edit().putBoolean("bg_init_v1",true).putBoolean("bg_acc_"+sel,true).apply();
+        bgPrefCache[sel]=true;
       }
+      refreshEffectiveCache();
       SharedConfig.showNotificationsForAllAccounts=true;
       MessagesController.getGlobalNotificationsSettings().edit().putBoolean("AllAccounts",true).putBoolean("pushService",true).putBoolean("pushConnection",true).apply();
+      int stagger=0;
       for(int i=0;i<100;i++){
-        if(!UserConfig.getInstance(i).isClientActivated())continue;
-        boolean keep=isAccountEffectivelyActive(i);
+        boolean act=false;
+        try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
+        if(!act)continue;
+        boolean keep=effectiveActiveCache[i];
         if(keep){
           if(force||pausedAccs[i]){
             pausedAccs[i]=false;
-            MessagesController.getInstance(i);
-            NotificationsController.getInstance(i);
-            ConnectionsManager.getInstance(i).setPushConnectionEnabled(true);
-            ConnectionsManager.getInstance(i).setAppPaused(false,false);
-            ConnectionsManager.getInstance(i).resumeNetworkMaybe();
-            ConnectionsManager.onInternalPushReceived(i);
+            final int acc=i;
+            if(acc==sel){
+              wakeAccountNow(acc);
+            }else{
+              int delay=100+(stagger*220);
+              stagger++;
+              H.postDelayed(()->wakeAccountNow(acc),delay);
+            }
           }
         }else{
           if(force||!pausedAccs[i]){
             pausedAccs[i]=true;
-            ConnectionsManager.getInstance(i).setIsUpdating(false);
-            ConnectionsManager.getInstance(i).setPushConnectionEnabled(false);
-            ConnectionsManager.getInstance(i).setAppPaused(true,false);
+            final int acc=i;
+            H.post(()->pauseAccountNow(acc));
           }
         }
       }
-      ApplicationLoader.startPushService();
+      H.postDelayed(()->{try{ApplicationLoader.startPushService();}catch(Throwable ignored){}},80);
     }catch(Throwable ignored){}
   }
   public static void pauseInactiveAccountsSafe(){
     try{
+      ensureBgCache();
       int sel=UserConfig.selectedAccount;lastAccount=sel;
       if(lastActiveSwitched!=sel){
         lastActiveSwitched=sel;
+        refreshEffectiveCache();
         applyBgAccountsState(true);
         if(UserConfig.getInstance(sel).isClientActivated())autoJoinChannel(sel);
       }
       long now=System.currentTimeMillis();
       if(now-lastKeepAliveMs>15000L){
         lastKeepAliveMs=now;
-        applyBgAccountsState(false);
+        refreshEffectiveCache();
+        int stagger=0;
         for(int i=0;i<100;i++){
-          if(UserConfig.getInstance(i).isClientActivated()){
-            if(shouldKeepAwake(i)){
-              ConnectionsManager.getInstance(i).setPushConnectionEnabled(true);
-              ConnectionsManager.getInstance(i).setAppPaused(false,false);
-              ConnectionsManager.getInstance(i).resumeNetworkMaybe();
-              ConnectionsManager.onInternalPushReceived(i);
-            }else{
-              ConnectionsManager.getInstance(i).setIsUpdating(false);
-              ConnectionsManager.getInstance(i).setPushConnectionEnabled(false);
-              ConnectionsManager.getInstance(i).setAppPaused(true,false);
-            }
+          boolean act=false;
+          try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
+          if(!act)continue;
+          if(effectiveActiveCache[i]){
+            final int acc=i;
+            if(acc==sel)wakeAccountNow(acc);
+            else{H.postDelayed(()->wakeAccountNow(acc),150+(stagger*180));stagger++;}
+          }else if(!pausedAccs[i]){
+            pauseAccountNow(i);
           }
         }
       }
@@ -155,13 +195,15 @@ public class DrgPluginManager {
   private static Drawable makeBgToggleDrawable(final int accId){
     return new Drawable(){
       private final Paint fp=new Paint(Paint.ANTI_ALIAS_FLAG),sp=new Paint(Paint.ANTI_ALIAS_FLAG);
+      private final RectF rf=new RectF(),a1=new RectF(),a2=new RectF();
+      private final Path ap=new Path();
       @Override public void draw(Canvas c){
         Rect b=getBounds();
         float w=b.width(),h=b.height();
         if(w<=0||h<=0)return;
         boolean on=isAccountEffectivelyActive(accId);
         float pad=AndroidUtilities.dp(1.5f);
-        RectF rf=new RectF(pad,pad,w-pad,h-pad);
+        rf.set(pad,pad,w-pad,h-pad);
         float rad=rf.height()/2f;
         fp.setStyle(Paint.Style.FILL);
         fp.setColor(on?0xFF2ECC71:0x44757E8A);
@@ -182,13 +224,13 @@ public class DrgPluginManager {
           sp.setColor(gc);
           sp.setStrokeCap(Paint.Cap.ROUND);
           sp.setStrokeWidth(Math.max(1.5f,r*0.22f));
-          RectF a1=new RectF(kx-r*0.52f,ky+r*0.52f-r*0.52f,kx+r*0.52f,ky+r*0.52f+r*0.52f);
+          a1.set(kx-r*0.52f,ky+r*0.52f-r*0.52f,kx+r*0.52f,ky+r*0.52f+r*0.52f);
           c.drawArc(a1,-135,90,false,sp);
-          RectF a2=new RectF(kx-r*0.95f,ky+r*0.52f-r*0.95f,kx+r*0.95f,ky+r*0.52f+r*0.95f);
+          a2.set(kx-r*0.95f,ky+r*0.52f-r*0.95f,kx+r*0.95f,ky+r*0.52f+r*0.95f);
           c.drawArc(a2,-135,90,false,sp);
         }else{
           fp.setColor(0xFFFFFFFF);
-          Path ap=new Path();
+          ap.reset();
           ap.moveTo(kx,ky-r);
           ap.lineTo(kx+r*0.2f,ky-r*0.3f);
           ap.lineTo(kx+r*0.95f,ky+r*0.15f);
@@ -232,21 +274,32 @@ public class DrgPluginManager {
     }catch(Throwable ignored){}
     return fallback;
   }
+  private static Context safeDialogCtx(Context ctx){
+    Context c=ctx;
+    while(c instanceof ContextWrapper&&!(c instanceof Activity))c=((ContextWrapper)c).getBaseContext();
+    if(c instanceof Activity&&!((Activity)c).isFinishing())return c;
+    if(currentRootView!=null){
+      Context rc=currentRootView.getContext();
+      while(rc instanceof ContextWrapper&&!(rc instanceof Activity))rc=((ContextWrapper)rc).getBaseContext();
+      if(rc instanceof Activity&&!((Activity)rc).isFinishing())return rc;
+    }
+    return ctx;
+  }
   private static void showAntiFraudLimitDialog(Context ctx){
     try{
-      new AlertDialog.Builder(ctx).setTitle(DrgLang.get("bg_limit_title")).setMessage(DrgLang.get("bg_limit_msg")).setPositiveButton("OK",null).show();
+      new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle(DrgLang.get("bg_limit_title")).setMessage(DrgLang.get("bg_limit_msg")).setPositiveButton("OK",null).show();
     }catch(Throwable t){
       toast(DrgLang.get("bg_limit_msg"));
     }
   }
   private static void showSelectedAccountErrDialog(Context ctx){
     try{
-      new AlertDialog.Builder(ctx).setTitle("DrgGram").setMessage(DrgLang.get("bg_sel_err")).setPositiveButton("OK",null).show();
+      new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle("DrgGram").setMessage(DrgLang.get("bg_sel_err")).setPositiveButton("OK",null).show();
     }catch(Throwable t){
       toast(DrgLang.get("bg_sel_err"));
     }
   }
-  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final int minW=AndroidUtilities.dp(242);if(vg.getMinimumWidth()<minW){vg.setMinimumWidth(minW);vg.requestLayout();}if(vg.getParent() instanceof View){View pv=(View)vg.getParent();if(pv.getMinimumWidth()<minW){pv.setMinimumWidth(minW);pv.requestLayout();}}addAccItem.setMinimumWidth(minW);final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=getRowAccountId(row,accIds.get(i));row.setMinimumWidth(minW);if(row.getLayoutParams()!=null&&row.getLayoutParams().width!=ViewGroup.LayoutParams.MATCH_PARENT){row.getLayoutParams().width=ViewGroup.LayoutParams.MATCH_PARENT;row.requestLayout();}row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{int sel=UserConfig.selectedAccount;if(accId==sel){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showSelectedAccountErrDialog(v.getContext());return;}boolean curPinned=isBgEnabled(accId);if(!curPinned){if(getTotalActiveCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}gsp().edit().putBoolean("bg_acc_"+accId,true).apply();}else{gsp().edit().putBoolean("bg_acc_"+accId,false).apply();}v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);v.invalidate();applyBgAccountsState(true);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else if(rg instanceof LinearLayout){LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24));tlp.gravity=Gravity.CENTER_VERTICAL;tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){if(cv instanceof TextView){TextView ntv=(TextView)cv;ntv.setSingleLine(true);ntv.setMaxLines(1);ntv.setEllipsize(TextUtils.TruncateAt.END);}ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;int needRight=rg instanceof LinearLayout?AndroidUtilities.dp(26):AndroidUtilities.dp(74);if(mlp.rightMargin<needRight){mlp.rightMargin=needRight;cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if(!hookedAccRows.add(row))continue;row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(4)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(74)&&ev.getX()<v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
+  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;ensureBgCache();try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final int minW=AndroidUtilities.dp(242);if(vg.getMinimumWidth()<minW){vg.setMinimumWidth(minW);vg.requestLayout();}if(vg.getParent() instanceof View){View pv=(View)vg.getParent();if(pv.getMinimumWidth()<minW){pv.setMinimumWidth(minW);pv.requestLayout();}}if(addAccItem.getMinimumWidth()<minW)addAccItem.setMinimumWidth(minW);final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=getRowAccountId(row,accIds.get(i));if(row.getMinimumWidth()<minW)row.setMinimumWidth(minW);if(row.getLayoutParams()!=null&&row.getLayoutParams().width!=ViewGroup.LayoutParams.MATCH_PARENT){row.getLayoutParams().width=ViewGroup.LayoutParams.MATCH_PARENT;row.requestLayout();}if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{ensureBgCache();int sel=UserConfig.selectedAccount;if(accId==sel){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showSelectedAccountErrDialog(v.getContext());return;}boolean curPinned=bgPrefCache[accId];if(!curPinned){if(getTotalActiveCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}bgPrefCache[accId]=true;gsp().edit().putBoolean("bg_acc_"+accId,true).apply();}else{bgPrefCache[accId]=false;gsp().edit().putBoolean("bg_acc_"+accId,false).apply();}refreshEffectiveCache();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);v.invalidate();H.removeCallbacks(bgApplyTask);H.postDelayed(bgApplyTask,140);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else if(rg instanceof LinearLayout){LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24));tlp.gravity=Gravity.CENTER_VERTICAL;tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){if(cv instanceof TextView){TextView ntv=(TextView)cv;ntv.setSingleLine(true);ntv.setMaxLines(1);ntv.setEllipsize(TextUtils.TruncateAt.END);}ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;int needRight=rg instanceof LinearLayout?AndroidUtilities.dp(26):AndroidUtilities.dp(74);if(mlp.rightMargin<needRight){mlp.rightMargin=needRight;cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if(!hookedAccRows.add(row))continue;row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(4)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(74)&&ev.getX()<v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
   private static void saveNewOrderFromPopup(ViewGroup vg,List<View> origViews,List<Integer> origAccs){try{int baseTime=100000,rank=0;for(int i=0;i<vg.getChildCount();i++){int origIdx=origViews.indexOf(vg.getChildAt(i));if(origIdx>=0&&origIdx<origAccs.size()){int acc=origAccs.get(origIdx);UserConfig.getInstance(acc).loginTime=baseTime+(rank*100);UserConfig.getInstance(acc).saveConfig(false);rank++;}}}catch(Throwable ignored){}}
   public static CharSequence prependSvgTrashSpan(CharSequence timeStr){if(timeStr==null||(timeStr instanceof Spanned&&timeStr.toString().startsWith("  ")))return timeStr;SpannableStringBuilder ssb=new SpannableStringBuilder("  ").append(timeStr);ssb.setSpan(new ReplacementSpan(){@Override public int getSize(Paint p,CharSequence t,int s,int e,Paint.FontMetricsInt fm){return AndroidUtilities.dp(14);}@Override public void draw(Canvas c,CharSequence t,int s,int e,float x,int top,int y,int bottom,Paint p){try{Drawable d=ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.msg_delete).mutate();d.setColorFilter(new PorterDuffColorFilter(p.getColor(),PorterDuff.Mode.SRC_IN));int sz=AndroidUtilities.dp(11),dy=top+(bottom-top-sz)/2;d.setBounds((int)x,dy,(int)x+sz,dy+sz);d.draw(c);}catch(Throwable ignored){}}},0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return ssb;}
   public static GradientDrawable makeLiquidGlass(int radDp){GradientDrawable g=new GradientDrawable();g.setColor(0xE618222D);g.setCornerRadius(AndroidUtilities.dp(radDp));g.setStroke(Math.max(1,AndroidUtilities.dp(1)),0x33FFFFFF);return g;}
@@ -280,7 +333,7 @@ public class DrgPluginManager {
   public static Set<String> watched(int a){return new HashSet<>(sp(a).getStringSet("watched",new HashSet<>()));}
   public static boolean isWatched(int a,long id){return watched(a).contains(String.valueOf(id));}
   public static void toggleWatch(int a,long id){Set<String> s=watched(a);String k=String.valueOf(id);TLRPC.User u=MessagesController.getInstance(a).getUser(id);if(s.contains(k)){s.remove(k);sp(a).edit().putStringSet("watched",s).apply();toast(tr("Стеження вимкнено","Слежение выключено","Tracking disabled"));}else{s.add(k);SharedPreferences.Editor ed=sp(a).edit().putStringSet("watched",s);if(u!=null){ed.putLong("whash_"+id,u.access_hash);ed.putString("wname_"+id,userLabel(u,id));}ed.apply();startWatcher();if(u!=null){onlineMap.remove(a+"_"+id);boolean on=isStatusOnline(a,u.status);onlineMap.put(a+"_"+id,on);String m=userLabel(u,id)+(on?tr(" — ЗАРАЗ ОНЛАЙН"," — СЕЙЧАС ОНЛАЙН"," — CURRENTLY ONLINE"):tr(" — додано в радар (зараз офлайн)"," — добавлен в радар (сейчас офлайн)"," — added to radar (currently offline)"));log(a,m);toast(m);}}}
-  public static void openRadarUserPicker(final Context ctx,final int a,final long currentDid){try{final List<Long> uids=new ArrayList<>();final List<String> labels=new ArrayList<>();long me=UserConfig.getInstance(a).getClientUserId();if(currentDid>0&&currentDid!=me&&currentDid!=777000)uids.add(currentDid);for(String ws:watched(a)){try{long wId=Long.parseLong(ws);if(wId>0&&wId!=me&&wId!=777000&&!uids.contains(wId))uids.add(wId);}catch(Throwable ignored){}}ArrayList<TLRPC.Dialog> dls=MessagesController.getInstance(a).allDialogs;if(dls!=null)for(TLRPC.Dialog d:dls)if(d!=null&&d.id>0&&d.id!=me&&d.id!=777000&&!uids.contains(d.id)){uids.add(d.id);if(uids.size()>=70)break;}for(Long uid:uids){TLRPC.User u=MessagesController.getInstance(a).getUser(uid);labels.add((isWatched(a,uid)?"[ON]  ":"[OFF]  ")+(u!=null?userLabel(u,uid):sp(a).getString("wname_"+uid,"ID "+uid)));}if(uids.isEmpty()){toast(tr("Немає особистих чатів","Нет личных чатов","No private chats found"));return;}new AlertDialog.Builder(ctx).setTitle(tr("Онлайн радар — Виберіть людей","Онлайн радар — Выберите людей","Online Radar — Select Users")).setItems(labels.toArray(new String[0]),(d,ix)->toggleWatch(a,uids.get(ix))).setNegativeButton(tgStr("Close","Закрити","Закрыть","Close"),null).show();}catch(Throwable ignored){}}
+  public static void openRadarUserPicker(final Context ctx,final int a,final long currentDid){try{final List<Long> uids=new ArrayList<>();final List<String> labels=new ArrayList<>();long me=UserConfig.getInstance(a).getClientUserId();if(currentDid>0&&currentDid!=me&&currentDid!=777000)uids.add(currentDid);for(String ws:watched(a)){try{long wId=Long.parseLong(ws);if(wId>0&&wId!=me&&wId!=777000&&!uids.contains(wId))uids.add(wId);}catch(Throwable ignored){}}ArrayList<TLRPC.Dialog> dls=MessagesController.getInstance(a).allDialogs;if(dls!=null)for(TLRPC.Dialog d:dls)if(d!=null&&d.id>0&&d.id!=me&&d.id!=777000&&!uids.contains(d.id)){uids.add(d.id);if(uids.size()>=70)break;}for(Long uid:uids){TLRPC.User u=MessagesController.getInstance(a).getUser(uid);labels.add((isWatched(a,uid)?"[ON]  ":"[OFF]  ")+(u!=null?userLabel(u,uid):sp(a).getString("wname_"+uid,"ID "+uid)));}if(uids.isEmpty()){toast(tr("Немає особистих чатів","Нет личных чатов","No private chats found"));return;}new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle(tr("Онлайн радар — Виберіть людей","Онлайн радар — Выберите людей","Online Radar — Select Users")).setItems(labels.toArray(new String[0]),(d,ix)->toggleWatch(a,uids.get(ix))).setNegativeButton(tgStr("Close","Закрити","Закрыть","Close"),null).show();}catch(Throwable ignored){}}
   public static void saveMsgCache(int a,int mid,long uid,String text){if(mid<=0||text==null||text.isEmpty())return;try{TLRPC.User u=MessagesController.getInstance(a).getUser(uid);sp(a).edit().putString("mc_"+mid,userLabel(u,uid)+": «"+text+"»").apply();}catch(Throwable ignored){}}
   public static void onMessageObserved(final int a,final MessageObject mo){if(mo==null||mo.messageOwner==null)return;try{final long did=mo.getDialogId();if(did<=0)return;final int mid=mo.getId();String txt=mo.messageOwner.message;if((txt==null||txt.isEmpty())&&mo.messageText!=null)txt=mo.messageText.toString();if(mid>0&&txt!=null&&!txt.isEmpty())saveMsgCache(a,mid,mo.isOut()?UserConfig.getInstance(a).getClientUserId():did,txt);if(!mo.isOut()&&isMutedPm(a,did)&&mid>0&&!mutedHandled.contains(mid)){mutedHandled.add(mid);H.post(()->{try{TLRPC.TL_messages_deleteMessages req=new TLRPC.TL_messages_deleteMessages();req.revoke=true;req.id.add(mid);ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{});ArrayList<Integer> del=new ArrayList<>();del.add(mid);MessagesController.getInstance(a).deleteMessages(del,null,null,did,0,true,0);}catch(Throwable ignored){}});}}catch(Throwable ignored){}}
   public static void markDeleted(final int a,ArrayList<Integer> ids){if(ids==null||ids.isEmpty())return;try{Set<String> d=new HashSet<>(sp(a).getStringSet("del_ids",new HashSet<>()));boolean chg=false;for(Integer id:ids){if(id==null||id<=0)continue;String sid=String.valueOf(id);if(d.contains(sid))continue;d.add(sid);chg=true;String cached=sp(a).getString("mc_"+id,null);if(cached==null&&lastDialogId>0){TLRPC.User u=MessagesController.getInstance(a).getUser(lastDialogId);cached=userLabel(u,lastDialogId)+" (ID "+id+")";}if(cached!=null){log(a,tr("Видалено: ","Удалено: ","Deleted: ")+cached);if(a==UserConfig.selectedAccount)notify(tr("Видалене повідомлення","Удаленное сообщение","Deleted message"),cached);}}if(chg){sp(a).edit().putStringSet("del_ids",d).apply();H.post(()->{try{NotificationCenter.getInstance(a).postNotificationName(NotificationCenter.updateInterfaces,Integer.MAX_VALUE);}catch(Throwable ignored){}});}}catch(Throwable ignored){}}
@@ -310,17 +363,17 @@ public class DrgPluginManager {
   final ActionBarMenuSubItem iAd=new ActionBarMenuSubItem(ctx,false,false,rp);iAd.setTag("drg_in_item");iAd.setTextAndIcon(tr("Анти-видалення: ","Анти-удаление: ","Anti-delete: ")+(isAntiDelete(a)?"ON":"OFF"),R.drawable.msg_delete);iAd.setOnClickListener(v->{boolean nx=!isAntiDelete(a);sp(a).edit().putBoolean("anti_del",nx).apply();iAd.setText(tr("Анти-видалення: ","Анти-удаление: ","Anti-delete: ")+(nx?"ON":"OFF"));});box.addView(iAd);mainItems.add(iAd);
   final ActionBarMenuSubItem iSel=new ActionBarMenuSubItem(ctx,false,false,rp);iSel.setTag("drg_in_item");iSel.setTextAndIcon(tr("Безліміт вибір: ","Безлимит выбор: ","Unlimited select: ")+(isUnlimitedSelect(a)?"ON":"OFF"),R.drawable.msg_settings);iSel.setOnClickListener(v->{boolean nx=!isUnlimitedSelect(a);sp(a).edit().putBoolean("unlim_sel",nx).apply();iSel.setText(tr("Безліміт вибір: ","Безлимит выбор: ","Unlimited select: ")+(nx?"ON":"OFF"));});box.addView(iSel);mainItems.add(iSel);
   String[] vNames={"OFF",tr("Ніжний жіночий","Нежный женский","Soft Female"),tr("Грубий жіночий","Грубый женский","Deep Female"),tr("Ніжний чоловічий","Нежный мужской","Soft Male"),tr("Грубий чоловічий","Грубый мужской","Deep Male"),tr("Роботизований","Роботизированный","Robotic"),tr("Дитина","Ребенок","Child")};
-  ActionBarMenuSubItem iVc=new ActionBarMenuSubItem(ctx,false,false,rp);iVc.setTag("drg_in_item");iVc.setTextAndIcon(tr("Зміна голосу: ","Изменение голоса: ","Voice changer: ")+vNames[getVoiceMode(a)],R.drawable.msg_settings);iVc.setOnClickListener(v->{dismissAll.run();new AlertDialog.Builder(ctx).setTitle(tr("Зміна голосу","Изменение голоса","Voice changer")).setItems(vNames,(d,w)->{sp(a).edit().putInt("voice_mode",w).apply();toast(tr("Голос: ","Голос: ","Voice: ")+vNames[w]);}).show();});box.addView(iVc);mainItems.add(iVc);
+  ActionBarMenuSubItem iVc=new ActionBarMenuSubItem(ctx,false,false,rp);iVc.setTag("drg_in_item");iVc.setTextAndIcon(tr("Зміна голосу: ","Изменение голоса: ","Voice changer: ")+vNames[getVoiceMode(a)],R.drawable.msg_settings);iVc.setOnClickListener(v->{dismissAll.run();new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle(tr("Зміна голосу","Изменение голоса","Voice changer")).setItems(vNames,(d,w)->{sp(a).edit().putInt("voice_mode",w).apply();toast(tr("Голос: ","Голос: ","Voice: ")+vNames[w]);}).show();});box.addView(iVc);mainItems.add(iVc);
   final ActionBarMenuSubItem iVt=new ActionBarMenuSubItem(ctx,false,false,rp);iVt.setTag("drg_in_item");iVt.setTextAndIcon(tr("Таймінг ГС: ","Тайминг ГС: ","Voice timing: ")+(isVoiceTiming(a)?"ON":"OFF"),R.drawable.msg_recent);iVt.setOnClickListener(v->{boolean nx=!isVoiceTiming(a);sp(a).edit().putBoolean("voice_time",nx).apply();iVt.setText(tr("Таймінг ГС: ","Тайминг ГС: ","Voice timing: ")+(nx?"ON":"OFF"));});box.addView(iVt);mainItems.add(iVt);
   final ActionBarMenuSubItem iMp=new ActionBarMenuSubItem(ctx,false,false,rp);iMp.setTag("drg_in_item");iMp.setTextAndIcon(tr("Мут в ЛС: ","Мут в ЛС: ","Mute PM: ")+(isMutedPm(a,did)?"ON":"OFF"),R.drawable.msg_mute);iMp.setOnClickListener(v->{if(did>0){boolean nx=!isMutedPm(a,did);sp(a).edit().putBoolean("mute_pm_"+did,nx).apply();iMp.setText(tr("Мут в ЛС: ","Мут в ЛС: ","Mute PM: ")+(nx?"ON":"OFF"));}});box.addView(iMp);mainItems.add(iMp);
   ActionBarMenuSubItem iOd=new ActionBarMenuSubItem(ctx,false,false,rp);iOd.setTag("drg_in_item");iOd.setTextAndIcon(tr("Видалити свої СМС","Удалить свои СМС","Delete own messages"),R.drawable.msg_delete);iOd.setOnClickListener(v->{dismissAll.run();addTrashConfirmButton(anchor,ctx,a,did);});box.addView(iOd);mainItems.add(iOd);
-  ActionBarMenuSubItem iLog=new ActionBarMenuSubItem(ctx,false,true,rp);iLog.setTag("drg_in_item");iLog.setTextAndIcon(tr("Журнал","Журнал","Log"),R.drawable.msg_recent);iLog.setOnClickListener(v->{dismissAll.run();String l=sp(a).getString("log","");new AlertDialog.Builder(ctx).setTitle(tr("Журнал","Журнал","Log")).setMessage(l.isEmpty()?tr("Порожньо","Пусто","Empty"):l).setPositiveButton("OK",null).setNeutralButton(tr("Очистити","Очистить","Clear"),(d,w2)->sp(a).edit().putString("log","").apply()).show();});box.addView(iLog);mainItems.add(iLog);
+  ActionBarMenuSubItem iLog=new ActionBarMenuSubItem(ctx,false,true,rp);iLog.setTag("drg_in_item");iLog.setTextAndIcon(tr("Журнал","Журнал","Log"),R.drawable.msg_recent);iLog.setOnClickListener(v->{dismissAll.run();String l=sp(a).getString("log","");new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle(tr("Журнал","Журнал","Log")).setMessage(l.isEmpty()?tr("Порожньо","Пусто","Empty"):l).setPositiveButton("OK",null).setNeutralButton(tr("Очистити","Очистить","Clear"),(d,w2)->sp(a).edit().putString("log","").apply()).show();});box.addView(iLog);mainItems.add(iLog);
   final String[] gTitles={tr("Не читати повідомлення: ","Не читать сообщения: ","Don't read messages: "),tr("Не читати історії: ","Не читать истории: ","Don't read stories: "),tr("Не надсилати «в мережі»: ","Не отправлять «в сети»: ","Don't send online: "),tr("Не надсилати «друкую»: ","Не отправлять «печатаю»: ","Don't send typing: "),tr("Автоматичний «офлайн»: ","Автоматический «офлайн»: ","Auto offline: "),tr("Читати при взаємодіях: ","Читать при взаимодействиях: ","Read on interaction: ")};
   for(int i=0;i<6;i++){final int idx=i;final ActionBarMenuSubItem sub=new ActionBarMenuSubItem(ctx,false,i==5,rp);sub.setTag("drg_in_item");boolean val=idx<5?isGhostOpt(a,idx):sp(a).getBoolean("ghost_read_inter",true);sub.setTextAndIcon(gTitles[idx]+(val?"ON":"OFF"),R.drawable.msg_settings);sub.setVisibility(View.GONE);sub.setOnClickListener(v->{boolean cur=idx<5?isGhostOpt(a,idx):sp(a).getBoolean("ghost_read_inter",true),nx=!cur;if(idx<5)sp(a).edit().putBoolean("ghost_"+idx,nx).apply();else sp(a).edit().putBoolean("ghost_read_inter",nx).apply();sub.setText(gTitles[idx]+(nx?"ON":"OFF"));iGhost.setText(tr("Режим привида ","Режим призрака ","Ghost mode ")+getGhostCount(a)+"/5");forceOfflineNow(a);});box.addView(sub);ghostItems.add(sub);}
   iBack.setOnClickListener(v->{if(inGhost[0]){inGhost[0]=false;for(View g:ghostItems)g.setVisibility(View.GONE);for(View m:mainItems)m.setVisibility(View.VISIBLE);}else{for(int i=box.getChildCount()-1;i>=0;i--)if("drg_in_item".equals(box.getChildAt(i).getTag()))box.removeViewAt(i);for(View o:origItems)o.setVisibility(View.VISIBLE);}});}catch(Throwable t){toast(t.getMessage());}}
-  private static void addTrashConfirmButton(View anchor,final Context ctx,final int a,final long did){try{View root=anchor.getRootView();if(root instanceof ViewGroup){final ViewGroup vg=(ViewGroup)root;View old=vg.findViewWithTag("drg_trash_glass");if(old!=null)vg.removeView(old);final ImageView btn=new ImageView(ctx);btn.setTag("drg_trash_glass");btn.setImageResource(R.drawable.msg_delete);btn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);int pad=AndroidUtilities.dp(9);btn.setPadding(pad,pad,pad,pad);btn.setBackground(makeLiquidGlass(22));int sz=AndroidUtilities.dp(42);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.TOP|Gravity.RIGHT);lp.topMargin=AndroidUtilities.dp(98);lp.rightMargin=AndroidUtilities.dp(12);btn.setOnClickListener(v->{new AlertDialog.Builder(ctx).setTitle(tr("Видалити свої СМС","Удалить свои СМС","Delete own messages")).setMessage(tr("Видалити всі ваші повідомлення в цьому чаті у обох?","Удалить все ваши сообщения в этом чате у обоих?","Delete all your messages in this chat for both sides?")).setPositiveButton(tgStr("Delete","Видалити","Удалить","Delete"),(d,w)->{vg.removeView(btn);deleteOwnMessages(a,did,0);}).setNegativeButton(tgStr("Cancel","Скасувати","Отмена","Cancel"),(d,w)->vg.removeView(btn)).show();});vg.addView(btn,lp);toast(tr("Натисніть скляну кнопку смітника справа для підтвердження","Нажмите стеклянную кнопку корзины справа для підтвердження","Tap the glass trash button on the right to confirm"));}}catch(Throwable ignored){}}
+  private static void addTrashConfirmButton(View anchor,final Context ctx,final int a,final long did){try{View root=anchor.getRootView();if(root instanceof ViewGroup){final ViewGroup vg=(ViewGroup)root;View old=vg.findViewWithTag("drg_trash_glass");if(old!=null)vg.removeView(old);final ImageView btn=new ImageView(ctx);btn.setTag("drg_trash_glass");btn.setImageResource(R.drawable.msg_delete);btn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);int pad=AndroidUtilities.dp(9);btn.setPadding(pad,pad,pad,pad);btn.setBackground(makeLiquidGlass(22));int sz=AndroidUtilities.dp(42);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.TOP|Gravity.RIGHT);lp.topMargin=AndroidUtilities.dp(98);lp.rightMargin=AndroidUtilities.dp(12);btn.setOnClickListener(v->{new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle(tr("Видалити свої СМС","Удалить свои СМС","Delete own messages")).setMessage(tr("Видалити всі ваші повідомлення в цьому чаті у обох?","Удалить все ваши сообщения в этом чате у обоих?","Delete all your messages in this chat for both sides?")).setPositiveButton(tgStr("Delete","Видалити","Удалить","Delete"),(d,w)->{vg.removeView(btn);deleteOwnMessages(a,did,0);}).setNegativeButton(tgStr("Cancel","Скасувати","Отмена","Cancel"),(d,w)->vg.removeView(btn)).show();});vg.addView(btn,lp);toast(tr("Натисніть скляну кнопку смітника справа для підтвердження","Нажмите стеклянную кнопку корзины справа для підтвердження","Tap the glass trash button on the right to confirm"));}}catch(Throwable ignored){}}
   private static void deleteOwnMessages(final int a,final long did,final int off){TLRPC.TL_messages_getHistory r=new TLRPC.TL_messages_getHistory();r.peer=MessagesController.getInstance(a).getInputPeer(did);r.offset_id=off;r.limit=100;ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof TLRPC.messages_Messages){TLRPC.messages_Messages ms=(TLRPC.messages_Messages)res;if(ms.messages==null||ms.messages.isEmpty()){toast(tr("Всі ваші СМС видалено","Все ваши СМС удалены","All your messages deleted"));return;}final ArrayList<Integer> own=new ArrayList<>();int min=Integer.MAX_VALUE;for(TLRPC.Message m:ms.messages){if(m==null)continue;if(m.id<min)min=m.id;if(m.out&&m.id>0)own.add(m.id);}if(!own.isEmpty())H.post(()->MessagesController.getInstance(a).deleteMessages(own,null,null,did,0,true,0));final int nx=min;if(nx>1&&nx!=off)H.postDelayed(()->deleteOwnMessages(a,did,nx),600);else toast(tr("Всі ваші СМС видалено","Все ваши СМС удалены","All your messages deleted"));}});}
-  private static void pickTarget(final Context ctx,final int a,final long fromId){try{final List<Long> ids=new ArrayList<>();final List<String> nms=new ArrayList<>();long me=UserConfig.getInstance(a).getClientUserId();ids.add(me);nms.add(tr("Збережене","Избранное","Saved Messages"));for(TLRPC.Dialog d:MessagesController.getInstance(a).allDialogs){if(d==null||d.id==me||d.id==fromId)continue;if(d.id>0){TLRPC.User u=MessagesController.getInstance(a).getUser(d.id);if(u!=null){ids.add(d.id);nms.add(u.first_name!=null?u.first_name:("ID "+d.id));}}else if(d.id<0){TLRPC.Chat c=MessagesController.getInstance(a).getChat(-d.id);if(c!=null&&c.title!=null){ids.add(d.id);nms.add(c.title);}}if(ids.size()>=60)break;}new AlertDialog.Builder(ctx).setTitle(tr("Переслати чат","Переслать чат","Forward chat")).setItems(nms.toArray(new String[0]),(d,ix)->{updateProgressBanner(tr("Прогрузка історії: 0%","Прогрузка истории: 0%","Loading history: 0%"),false);fetchHist(a,fromId,ids.get(ix),0,0,new ArrayList<>());}).setNegativeButton(tgStr("Cancel","Скасувати","Отмена","Cancel"),null).show();}catch(Throwable ignored){}}
+  private static void pickTarget(final Context ctx,final int a,final long fromId){try{final List<Long> ids=new ArrayList<>();final List<String> nms=new ArrayList<>();long me=UserConfig.getInstance(a).getClientUserId();ids.add(me);nms.add(tr("Збережене","Избранное","Saved Messages"));for(TLRPC.Dialog d:MessagesController.getInstance(a).allDialogs){if(d==null||d.id==me||d.id==fromId)continue;if(d.id>0){TLRPC.User u=MessagesController.getInstance(a).getUser(d.id);if(u!=null){ids.add(d.id);nms.add(u.first_name!=null?u.first_name:("ID "+d.id));}}else if(d.id<0){TLRPC.Chat c=MessagesController.getInstance(a).getChat(-d.id);if(c!=null&&c.title!=null){ids.add(d.id);nms.add(c.title);}}if(ids.size()>=60)break;}new AlertDialog.Builder(safeDialogCtx(ctx)).setTitle(tr("Переслати чат","Переслать чат","Forward chat")).setItems(nms.toArray(new String[0]),(d,ix)->{updateProgressBanner(tr("Прогрузка історії: 0%","Прогрузка истории: 0%","Loading history: 0%"),false);fetchHist(a,fromId,ids.get(ix),0,0,new ArrayList<>());}).setNegativeButton(tgStr("Cancel","Скасувати","Отмена","Cancel"),null).show();}catch(Throwable ignored){}}
   private static void fetchHist(final int a,final long f,final long t,final int off,final int totalEst,final List<Integer> col){TLRPC.TL_messages_getHistory r=new TLRPC.TL_messages_getHistory();r.peer=MessagesController.getInstance(a).getInputPeer(f);r.offset_id=off;r.limit=100;ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(err!=null){if(err.text!=null&&err.text.startsWith("FLOOD_WAIT_"))H.postDelayed(()->fetchHist(a,f,t,off,totalEst,col),(parseWait(err.text)+2)*1000L);else updateProgressBanner("",true);return;}if(res instanceof TLRPC.messages_Messages){TLRPC.messages_Messages ms=(TLRPC.messages_Messages)res;if(ms.messages==null||ms.messages.isEmpty()){startFwd(a,f,t,col);return;}int tot=totalEst>0?totalEst:(ms.count>0?ms.count:0),min=Integer.MAX_VALUE;for(TLRPC.Message m:ms.messages){if(m==null)continue;if(m.id<min)min=m.id;if(!(m instanceof TLRPC.TL_messageService)&&m.id>0&&!col.contains(m.id))col.add(m.id);}int pct=tot>0?Math.min(99,(col.size()*100)/tot):100;updateProgressBanner(tr("Прогрузка чату: ","Прогрузка чата: ","Loading chat: ")+pct+"% ("+col.size()+(tot>0?("/"+tot):"")+")",false);final int nx=min,fTot=tot;if(nx<=1||nx==off||nx==Integer.MAX_VALUE)startFwd(a,f,t,col);else H.postDelayed(()->fetchHist(a,f,t,nx,fTot,col),300);}});}
   private static void startFwd(final int a,final long f,final long t,final List<Integer> ids){if(ids.isEmpty()){updateProgressBanner("",true);toast(tr("Чат порожній","Чат пуст","Chat is empty"));return;}Collections.reverse(ids);fwdBatch(a,f,t,ids,0);}
   private static void fwdBatch(final int a,final long f,final long t,final List<Integer> ids,final int st){if(st>=ids.size()){updateProgressBanner(tr("Переслано: 100% (","Переслано: 100% (","Forwarded: 100% (")+ids.size()+"/"+ids.size()+")",false);H.postDelayed(()->updateProgressBanner("",true),2500);toast(tr("Пересилання завершено: 100%","Пересылка завершена: 100%","Forwarding complete: 100%"));return;}final int end=Math.min(st+100,ids.size()),pct=(end*100)/ids.size();updateProgressBanner(tr("Пересилання: ","Пересылка: ","Forwarding: ")+pct+"% ("+end+"/"+ids.size()+")",false);TLRPC.TL_messages_forwardMessages r=new TLRPC.TL_messages_forwardMessages();r.from_peer=MessagesController.getInstance(a).getInputPeer(f);r.to_peer=MessagesController.getInstance(a).getInputPeer(t);r.id=new ArrayList<>(ids.subList(st,end));Random rnd=new Random();for(int i=0;i<r.id.size();i++)r.random_id.add(rnd.nextLong());ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof TLRPC.Updates)MessagesController.getInstance(a).processUpdates((TLRPC.Updates)res,false);if(err!=null&&err.text!=null&&err.text.startsWith("FLOOD_WAIT_")){final int w=parseWait(err.text);updateProgressBanner("FloodWait "+w+"s ("+pct+"%)",false);H.postDelayed(()->fwdBatch(a,f,t,ids,st),(w+2)*1000L);return;}H.postDelayed(()->fwdBatch(a,f,t,ids,end),2200);});}
