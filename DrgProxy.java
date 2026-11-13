@@ -27,6 +27,7 @@ import java.util.regex.*;
 
 public class DrgProxy {
   private static final Map<String,String> countryCache=Collections.synchronizedMap(new HashMap<>());
+  private static final Set<View> attachedRoots=Collections.newSetFromMap(new WeakHashMap<>());
 
   public static Drawable makeSvg(final int type,final int color){
     return new Drawable(){
@@ -101,6 +102,10 @@ public class DrgProxy {
       return r!=null?r.toString().trim():"";
     }catch(Throwable ignored){}
     return "";
+  }
+
+  private static String normTxt(String s){
+    return s==null?"":s.replace('’','\'').replace('ʼ','\'').trim();
   }
 
   public static void onBottomSheetShown(final BottomSheet bs){
@@ -238,7 +243,14 @@ public class DrgProxy {
   public static void openProxyManagerDialog(final Context ctx){
     try{
       BaseFragment f=LaunchActivity.getLastFragment();
-      if(f!=null){f.presentFragment(new ProxyListActivity());return;}
+      if(f!=null){
+        final ProxyListActivity pla=new ProxyListActivity();
+        f.presentFragment(pla);
+        DrgPluginManager.H.postDelayed(()->{
+          try{if(pla.getFragmentView()!=null)attachToNativeProxyList(pla,pla.getFragmentView());}catch(Throwable ignored){}
+        },120);
+        return;
+      }
     }catch(Throwable ignored){}
   }
 
@@ -327,24 +339,27 @@ public class DrgProxy {
       }
     }catch(Throwable ignored){}
 
+    if(!attachedRoots.add(vg))return;
     final int[] waitTries={0};
     final boolean[] wasAttached={false};
     DrgPluginManager.H.postDelayed(new Runnable(){
       @Override public void run(){
         try{
           if(!vg.isAttachedToWindow()){
-            if(!wasAttached[0]&&waitTries[0]++<30){
+            if(!wasAttached[0]&&waitTries[0]++<40){
               DrgPluginManager.H.postDelayed(this,100);
+            }else{
+              attachedRoots.remove(vg);
             }
             return;
           }
           wasAttached[0]=true;
           List<View> all=new ArrayList<>();collect(vg,all);
-          String connTitle=tgStr("ProxyConnections","З'єднання","Соединения","Connections");
+          String connTitle=normTxt(tgStr("ProxyConnections","З'єднання","Соединения","Connections"));
           for(View v:all){
-            String s=getViewText(v);
+            String s=normTxt(getViewText(v));
             if(s.isEmpty())continue;
-            if((s.equalsIgnoreCase(connTitle)||s.equalsIgnoreCase("З'єднання")||s.equalsIgnoreCase("З’єднання")||s.equalsIgnoreCase("Соединения")||s.equalsIgnoreCase("Connections"))&&v.getParent() instanceof ViewGroup){
+            if((s.equalsIgnoreCase(connTitle)||s.equalsIgnoreCase("З'єднання")||s.equalsIgnoreCase("Соединения")||s.equalsIgnoreCase("Connections"))&&v.getParent() instanceof ViewGroup){
               final ViewGroup hc=(ViewGroup)v.getParent();
               if(hc.findViewWithTag("drg_hdr_bar")==null){
                 final LinearLayout bar=new LinearLayout(ctx);
@@ -357,30 +372,30 @@ public class DrgProxy {
                 Typeface tf=null;
                 try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
 
-                TextView tvDel=new TextView(ctx);
-                tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
-                tvDel.setTextColor(0xFFE56555);
-                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13f);
-                if(tf!=null)tvDel.setTypeface(tf);
-                tvDel.setPadding(AndroidUtilities.dp(6),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
-                try{tvDel.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
-                tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
-                bar.addView(tvDel);
-
                 TextView tvRef=new TextView(ctx);
                 tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
                 tvRef.setTextColor(blueCol);
-                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,13f);
+                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12.5f);
                 if(tf!=null)tvRef.setTypeface(tf);
-                tvRef.setPadding(AndroidUtilities.dp(6),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
+                tvRef.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(8),AndroidUtilities.dp(4));
                 try{tvRef.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
                 tvRef.setOnClickListener(clk->doRefreshProxies(bf));
                 bar.addView(tvRef);
 
+                TextView tvDel=new TextView(ctx);
+                tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
+                tvDel.setTextColor(0xFFE56555);
+                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12.5f);
+                if(tf!=null)tvDel.setTypeface(tf);
+                tvDel.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
+                try{tvDel.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
+                tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
+                bar.addView(tvDel);
+
                 if(hc instanceof FrameLayout){
                   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
                   lp.rightMargin=AndroidUtilities.dp(12);
-                  lp.topMargin=AndroidUtilities.dp(4);
+                  lp.topMargin=AndroidUtilities.dp(3);
                   hc.addView(bar,lp);
                 }else{
                   hc.addView(bar);
@@ -389,7 +404,7 @@ public class DrgProxy {
             }
           }
           DrgPluginManager.H.postDelayed(this,450);
-        }catch(Throwable ignored){}
+        }catch(Throwable ignored){attachedRoots.remove(vg);}
       }
     },60);
   }
