@@ -1,8 +1,10 @@
 package org.telegram.messenger;
 import android.content.*;
+import android.content.res.ColorStateList;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.net.Uri;
+import android.os.Build;
 import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.*;
@@ -56,6 +58,20 @@ public class DrgProxy {
       @Override public int getIntrinsicWidth(){return AndroidUtilities.dp(22);}
       @Override public int getIntrinsicHeight(){return AndroidUtilities.dp(22);}
     };
+  }
+
+  private static Drawable makePillBg(int accentColor){
+    int fill=(accentColor&0x00FFFFFF)|0x22000000;
+    int stroke=(accentColor&0x00FFFFFF)|0x48000000;
+    GradientDrawable gd=new GradientDrawable();
+    gd.setColor(fill);
+    gd.setStroke(Math.max(1,AndroidUtilities.dp(1)),stroke);
+    gd.setCornerRadius(AndroidUtilities.dp(14));
+    if(Build.VERSION.SDK_INT>=21){
+      int rpl=(accentColor&0x00FFFFFF)|0x40000000;
+      return new RippleDrawable(ColorStateList.valueOf(rpl),gd,gd);
+    }
+    return gd;
   }
 
   public static void onPopupShown(final ActionBarPopupWindow pw){
@@ -272,10 +288,9 @@ public class DrgProxy {
       SharedConfig.ProxyInfo p=SharedConfig.proxyList.get(i);
       if(p==SharedConfig.currentProxy&&SharedConfig.isProxyEnabled())continue;
       boolean chk=pBool(p,"checking");
-      long chkTime=pLong(p,"availableCheckTime");
-      boolean av=pBool(p,"available");
-      long pg=pLong(p,"ping");
-      if(!chk&&chkTime!=0&&(!av||pg<=0)){
+      boolean hasAv=hasField(p,"available");
+      boolean av=hasAv?pBool(p,"available"):true;
+      if(!chk&&hasAv&&!av){
         SharedConfig.deleteProxy(p);
         removed++;
       }
@@ -369,28 +384,32 @@ public class DrgProxy {
 
                 int blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2);
                 if(blueCol==0)blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2);
+                if(blueCol==0)blueCol=0xFF4CA3FF;
+                int redCol=0xFFE56555;
                 Typeface tf=null;
                 try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
 
                 TextView tvRef=new TextView(ctx);
                 tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
                 tvRef.setTextColor(blueCol);
-                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12.5f);
+                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
                 if(tf!=null)tvRef.setTypeface(tf);
-                tvRef.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(8),AndroidUtilities.dp(4));
-                try{tvRef.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
+                tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
+                tvRef.setBackground(makePillBg(blueCol));
                 tvRef.setOnClickListener(clk->doRefreshProxies(bf));
-                bar.addView(tvRef);
+                LinearLayout.LayoutParams refLp=new LinearLayout.LayoutParams(-2,-2);
+                refLp.rightMargin=AndroidUtilities.dp(6);
+                bar.addView(tvRef,refLp);
 
                 TextView tvDel=new TextView(ctx);
                 tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
-                tvDel.setTextColor(0xFFE56555);
-                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12.5f);
+                tvDel.setTextColor(redCol);
+                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
                 if(tf!=null)tvDel.setTypeface(tf);
-                tvDel.setPadding(AndroidUtilities.dp(8),AndroidUtilities.dp(4),AndroidUtilities.dp(6),AndroidUtilities.dp(4));
-                try{tvDel.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector),2));}catch(Throwable ignored){}
+                tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
+                tvDel.setBackground(makePillBg(redCol));
                 tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
-                bar.addView(tvDel);
+                bar.addView(tvDel,new LinearLayout.LayoutParams(-2,-2));
 
                 if(hc instanceof FrameLayout){
                   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
@@ -438,9 +457,11 @@ public class DrgProxy {
 
   private static void collect(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collect(vg.getChildAt(i),out);}}
   private static Object getSettingsObj(Object p){if(p==null)return null;try{for(Field f:p.getClass().getDeclaredFields()){if(f.getType().getSimpleName().contains("ProxySettings")){f.setAccessible(true);Object v=f.get(p);if(v!=null)return v;}}}catch(Throwable ignored){}return p;}
-  private static long pLong(Object p,String... nms){if(p==null)return 0L;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);return f.getLong(t);}catch(Throwable ignored){}}}return 0L;}
-  private static boolean pBool(Object p,String... nms){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);return f.getBoolean(t);}catch(Throwable ignored){}}}return false;}
-  private static void pSet(Object p,Object val,String... nms){if(p==null)return;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=t.getClass().getDeclaredField(n);f.setAccessible(true);f.set(t,val);return;}catch(Throwable ignored){}}}}
+  private static Field findField(Class<?> cls,String n){while(cls!=null&&cls!=Object.class){try{Field f=cls.getDeclaredField(n);f.setAccessible(true);return f;}catch(Throwable ignored){}cls=cls.getSuperclass();}return null;}
+  private static boolean hasField(Object p,String n){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t!=null&&findField(t.getClass(),n)!=null)return true;}return false;}
+  private static long pLong(Object p,String... nms){if(p==null)return 0L;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null)return f.getLong(t);}catch(Throwable ignored){}}}return 0L;}
+  private static boolean pBool(Object p,String... nms){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null)return f.getBoolean(t);}catch(Throwable ignored){}}}return false;}
+  private static void pSet(Object p,Object val,String... nms){if(p==null)return;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null){f.set(t,val);return;}}catch(Throwable ignored){}}}}
   private static String tgStr(String k,String uk,String ru,String en){return DrgPluginManager.tgStr(k,uk,ru,en);}
   private static String tr(String uk,String ru,String en){return DrgPluginManager.tr(uk,ru,en);}
 
