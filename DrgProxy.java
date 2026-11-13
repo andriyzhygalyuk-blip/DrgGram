@@ -65,15 +65,13 @@ public class DrgProxy {
     };
   }
 
-  private static Drawable makePillBg(int accentColor){
-    int fill=(accentColor&0x00FFFFFF)|0x22000000;
-    int stroke=(accentColor&0x00FFFFFF)|0x48000000;
+  private static Drawable makeBlackOutlinePill(int rippleTint){
     GradientDrawable gd=new GradientDrawable();
-    gd.setColor(fill);
-    gd.setStroke(Math.max(1,AndroidUtilities.dp(1)),stroke);
+    gd.setColor(0xFF000000);
+    gd.setStroke(Math.max(1,AndroidUtilities.dp(1)),0xFFFFFFFF);
     gd.setCornerRadius(AndroidUtilities.dp(14));
     if(Build.VERSION.SDK_INT>=21){
-      int rpl=(accentColor&0x00FFFFFF)|0x40000000;
+      int rpl=(rippleTint&0x00FFFFFF)|0x40000000;
       return new RippleDrawable(ColorStateList.valueOf(rpl),gd,gd);
     }
     return gd;
@@ -93,10 +91,11 @@ public class DrgProxy {
           if(v instanceof ActionBarMenuSubItem&&v.getVisibility()==View.VISIBLE){
             ActionBarMenuSubItem si=(ActionBarMenuSubItem)v;
             if(si.getParent() instanceof ViewGroup)target=(ViewGroup)si.getParent();
-            String t=si.getTextView()!=null&&si.getTextView().getText()!=null?si.getTextView().getText().toString().toLowerCase(Locale.ROOT):"";
-            if(t.contains("drgplugins")||t.contains("пошук")||t.contains("поиск")||t.contains("search"))return;
-            if(t.contains("проксі")||t.contains("прокси")||t.contains("proxy")||t.contains(proxyLbl))hasNativeProxy=true;
-            if(t.contains("група")||t.contains("группа")||t.contains("group")||t.contains("архів")||t.contains("архив")||t.contains("archive")||t.contains("збережене")||t.contains("избранное")||t.contains("saved")||t.contains("гаманець")||t.contains("кошелек")||t.contains("wallet"))isDialogsMenu=true;
+            String t=si.getTextView()!=null&&si.getTextView().getText()!=null?si.getTextView().getText().toString().trim():"";
+            String tl=t.toLowerCase(Locale.ROOT);
+            if(DrgLang.isExcludedMenuLabel(tl))return;
+            if(tl.contains("проксі")||tl.contains("прокси")||tl.contains("proxy")||(!proxyLbl.isEmpty()&&tl.contains(proxyLbl)))hasNativeProxy=true;
+            if(DrgLang.isDialogsMenuLabel(tl))isDialogsMenu=true;
           }
         }
         if(target==null||hasNativeProxy||!isDialogsMenu)return;
@@ -181,8 +180,8 @@ public class DrgProxy {
           }
           if(table==null||srvRow==null||srvAddress.isEmpty())return;
           boolean isMt=!secVal.isEmpty();
-          String typeTitle=tr("Тип","Тип","Type");
-          String typeVal=isMt?tr("Проксі MTProto","Прокси MTProto","MTProto Proxy"):"SOCKS5";
+          String typeTitle=DrgLang.get("type");
+          String typeVal=isMt?DrgLang.get("mtproto"):"SOCKS5";
           String countryTitle=tgStr("Country","Країна","Страна","Country");
 
           View addedType=addNativeTableRow(table,srvRow,typeTitle,typeVal,null);
@@ -283,7 +282,7 @@ public class DrgProxy {
       p.availableCheckTime=expired;
     }
     refreshNativeProxyList(bf,true);
-    DrgPluginManager.toast(tr("Оновлення списку проксі...","Обновление списка прокси...","Refreshing proxy list..."));
+    DrgPluginManager.toast(DrgLang.get("refreshing"));
   }
 
   private static void doDeleteUnavailableProxies(BaseFragment bf){
@@ -298,7 +297,7 @@ public class DrgProxy {
       }
     }
     refreshNativeProxyList(bf,false);
-    DrgPluginManager.toast(removed>0?(tr("Видалено недоступних: ","Удалено недоступных: ","Removed unavailable: ")+removed):tr("Немає недоступних проксі","Нет недоступных прокси","No unavailable proxies"));
+    DrgPluginManager.toast(removed>0?(DrgLang.get("removed_n")+removed):DrgLang.get("no_unavail"));
   }
 
   private static void tintMenuItem(ActionBarMenuItem item,int color){
@@ -342,7 +341,7 @@ public class DrgProxy {
           if(refItem!=null){
             refItem.setTag("drg_ab_proxy_btns");
             tintMenuItem(refItem,icCol);
-            refItem.setContentDescription(tgStr("Refresh","Оновити","Обновить","Refresh"));
+            refItem.setContentDescription(DrgLang.tg("Refresh","refresh"));
             refItem.setOnClickListener(v->doRefreshProxies(bf));
           }
           ActionBarMenuItem delItem=menu.addItem(991002,makeSvg(2,Color.WHITE));
@@ -391,44 +390,50 @@ public class DrgProxy {
           }
           if(targetHc!=null&&targetHc.findViewWithTag("drg_hdr_bar")==null){
             final ViewGroup hc=targetHc;
+            try{
+              Method sh=hc.getClass().getMethod("setHeight",int.class);
+              sh.invoke(hc,58);
+            }catch(Throwable ignored){}
+            boolean rtl=LocaleController.isRTL;
             final LinearLayout bar=new LinearLayout(ctx);
             bar.setTag("drg_hdr_bar");
-            bar.setOrientation(LinearLayout.HORIZONTAL);
-            bar.setGravity(Gravity.CENTER_VERTICAL);
+            bar.setOrientation(LinearLayout.VERTICAL);
+            bar.setGravity(rtl?Gravity.LEFT:Gravity.RIGHT);
 
             int blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2);
-            if(blueCol==0)blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2);
             if(blueCol==0)blueCol=0xFF4CA3FF;
             int redCol=0xFFE56555;
             Typeface tf=null;
             try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
 
             TextView tvRef=new TextView(ctx);
-            tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
+            tvRef.setText(DrgLang.tg("Refresh","refresh"));
             tvRef.setTextColor(blueCol);
-            tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
+            tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,11.5f);
+            tvRef.setIncludeFontPadding(false);
             if(tf!=null)tvRef.setTypeface(tf);
-            tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
-            tvRef.setBackground(makePillBg(blueCol));
+            tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(3),AndroidUtilities.dp(10),AndroidUtilities.dp(3));
+            tvRef.setBackground(makeBlackOutlinePill(blueCol));
             tvRef.setOnClickListener(clk->doRefreshProxies(bf));
             LinearLayout.LayoutParams refLp=new LinearLayout.LayoutParams(-2,-2);
-            refLp.rightMargin=AndroidUtilities.dp(6);
+            refLp.bottomMargin=AndroidUtilities.dp(3);
             bar.addView(tvRef,refLp);
 
             TextView tvDel=new TextView(ctx);
-            tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
+            tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+DrgLang.tg("Unavailable","unavailable")+")");
             tvDel.setTextColor(redCol);
-            tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
+            tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,11.5f);
+            tvDel.setIncludeFontPadding(false);
             if(tf!=null)tvDel.setTypeface(tf);
-            tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
-            tvDel.setBackground(makePillBg(redCol));
+            tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(3),AndroidUtilities.dp(10),AndroidUtilities.dp(3));
+            tvDel.setBackground(makeBlackOutlinePill(redCol));
             tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
             bar.addView(tvDel,new LinearLayout.LayoutParams(-2,-2));
 
             if(hc instanceof FrameLayout){
-              FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-              lp.rightMargin=AndroidUtilities.dp(12);
-              lp.topMargin=AndroidUtilities.dp(3);
+              FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,(rtl?Gravity.LEFT:Gravity.RIGHT)|Gravity.CENTER_VERTICAL);
+              if(rtl)lp.leftMargin=AndroidUtilities.dp(12);
+              else lp.rightMargin=AndroidUtilities.dp(12);
               hc.addView(bar,lp);
             }else{
               hc.addView(bar);
@@ -480,20 +485,10 @@ public class DrgProxy {
   private static void pSet(Object p,Object val,String... nms){if(p==null)return;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null){f.set(t,val);return;}}catch(Throwable ignored){}}}}
 
   private static String tgStr(String k,String uk,String ru,String en){
-    try{
-      Context c=ApplicationLoader.applicationContext;
-      String[] pkgs={"org.telegram.messenger","org.telegram.messenger.web",c.getPackageName()};
-      for(String pkg:pkgs){
-        int id=c.getResources().getIdentifier(k,"string",pkg);
-        if(id!=0){
-          String s=LocaleController.getString(id);
-          if(s!=null&&!s.isEmpty())return s;
-        }
-      }
-    }catch(Throwable ignored){}
+    String s=DrgLang.tgRaw(k);
+    if(!s.isEmpty())return s;
     return DrgPluginManager.tgStr(k,uk,ru,en);
   }
-  private static String tr(String uk,String ru,String en){return DrgPluginManager.tr(uk,ru,en);}
 
   private static String readHttps(String urlStr){
     try{
@@ -521,7 +516,7 @@ public class DrgProxy {
         Matcher m1=Pattern.compile("\"country\"\\s*:\\s*\"([A-Z]{2})\"").matcher(r1);
         if(m1.find())iso=m1.group(1);
         if(iso.isEmpty()){
-          String r2=readHttps("https://ipwho.is/"+Uri.encode(ip)+"?lang="+DrgPluginManager.lang());
+          String r2=readHttps("https://ipwho.is/"+Uri.encode(ip)+"?lang="+DrgLang.lang());
           Matcher m2=Pattern.compile("\"country_code\"\\s*:\\s*\"([A-Z]{2})\"").matcher(r2);
           if(m2.find())iso=m2.group(1);
           Matcher m2c=Pattern.compile("\"country\"\\s*:\\s*\"([^\"]+)\"").matcher(r2);
@@ -532,7 +527,7 @@ public class DrgProxy {
           if(r3!=null&&r3.trim().matches("[A-Z]{2}"))iso=r3.trim();
         }
         if(!iso.isEmpty()){
-          Locale userLoc=new Locale(DrgPluginManager.lang());
+          Locale userLoc=new Locale(DrgLang.lang());
           String disp=new Locale("",iso).getDisplayCountry(userLoc);
           if(disp!=null&&!disp.isEmpty()&&!disp.equalsIgnoreCase(iso))cName=disp;
         }
