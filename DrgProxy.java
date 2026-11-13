@@ -372,56 +372,66 @@ public class DrgProxy {
           }
           wasAttached[0]=true;
           List<View> all=new ArrayList<>();collect(vg,all);
-          String connTitle=normTxt(tgStr("ProxyConnections","З'єднання","Соединения","Connections"));
+          String connTitle=normTxt(tgStr("ProxyConnections","З'єднання","Подключения","Connections"));
+          ViewGroup targetHc=null;
+          List<ViewGroup> headerCells=new ArrayList<>();
           for(View v:all){
+            if(v instanceof ViewGroup&&v.getClass().getSimpleName().contains("HeaderCell")&&v.getVisibility()==View.VISIBLE){
+              headerCells.add((ViewGroup)v);
+            }
             String s=normTxt(getViewText(v));
             if(s.isEmpty())continue;
-            if((s.equalsIgnoreCase(connTitle)||s.equalsIgnoreCase("З'єднання")||s.equalsIgnoreCase("Соединения")||s.equalsIgnoreCase("Connections"))&&v.getParent() instanceof ViewGroup){
-              final ViewGroup hc=(ViewGroup)v.getParent();
-              if(hc.findViewWithTag("drg_hdr_bar")==null){
-                final LinearLayout bar=new LinearLayout(ctx);
-                bar.setTag("drg_hdr_bar");
-                bar.setOrientation(LinearLayout.HORIZONTAL);
-                bar.setGravity(Gravity.CENTER_VERTICAL);
+            if((s.equalsIgnoreCase(connTitle)||s.equalsIgnoreCase("З'єднання")||s.equalsIgnoreCase("Подключения")||s.equalsIgnoreCase("Соединения")||s.equalsIgnoreCase("Connections"))&&v.getParent() instanceof ViewGroup){
+              targetHc=(ViewGroup)v.getParent();
+              break;
+            }
+          }
+          if(targetHc==null&&!headerCells.isEmpty()){
+            targetHc=headerCells.get(headerCells.size()-1);
+          }
+          if(targetHc!=null&&targetHc.findViewWithTag("drg_hdr_bar")==null){
+            final ViewGroup hc=targetHc;
+            final LinearLayout bar=new LinearLayout(ctx);
+            bar.setTag("drg_hdr_bar");
+            bar.setOrientation(LinearLayout.HORIZONTAL);
+            bar.setGravity(Gravity.CENTER_VERTICAL);
 
-                int blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2);
-                if(blueCol==0)blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2);
-                if(blueCol==0)blueCol=0xFF4CA3FF;
-                int redCol=0xFFE56555;
-                Typeface tf=null;
-                try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
+            int blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2);
+            if(blueCol==0)blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2);
+            if(blueCol==0)blueCol=0xFF4CA3FF;
+            int redCol=0xFFE56555;
+            Typeface tf=null;
+            try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
 
-                TextView tvRef=new TextView(ctx);
-                tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
-                tvRef.setTextColor(blueCol);
-                tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
-                if(tf!=null)tvRef.setTypeface(tf);
-                tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
-                tvRef.setBackground(makePillBg(blueCol));
-                tvRef.setOnClickListener(clk->doRefreshProxies(bf));
-                LinearLayout.LayoutParams refLp=new LinearLayout.LayoutParams(-2,-2);
-                refLp.rightMargin=AndroidUtilities.dp(6);
-                bar.addView(tvRef,refLp);
+            TextView tvRef=new TextView(ctx);
+            tvRef.setText(tgStr("Refresh","Оновити","Обновить","Refresh"));
+            tvRef.setTextColor(blueCol);
+            tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
+            if(tf!=null)tvRef.setTypeface(tf);
+            tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
+            tvRef.setBackground(makePillBg(blueCol));
+            tvRef.setOnClickListener(clk->doRefreshProxies(bf));
+            LinearLayout.LayoutParams refLp=new LinearLayout.LayoutParams(-2,-2);
+            refLp.rightMargin=AndroidUtilities.dp(6);
+            bar.addView(tvRef,refLp);
 
-                TextView tvDel=new TextView(ctx);
-                tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
-                tvDel.setTextColor(redCol);
-                tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
-                if(tf!=null)tvDel.setTypeface(tf);
-                tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
-                tvDel.setBackground(makePillBg(redCol));
-                tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
-                bar.addView(tvDel,new LinearLayout.LayoutParams(-2,-2));
+            TextView tvDel=new TextView(ctx);
+            tvDel.setText(tgStr("Delete","Видалити","Удалить","Delete")+" ("+tgStr("Unavailable","Недоступні","Недоступные","Unavailable")+")");
+            tvDel.setTextColor(redCol);
+            tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,12f);
+            if(tf!=null)tvDel.setTypeface(tf);
+            tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(4),AndroidUtilities.dp(10),AndroidUtilities.dp(4));
+            tvDel.setBackground(makePillBg(redCol));
+            tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
+            bar.addView(tvDel,new LinearLayout.LayoutParams(-2,-2));
 
-                if(hc instanceof FrameLayout){
-                  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-                  lp.rightMargin=AndroidUtilities.dp(12);
-                  lp.topMargin=AndroidUtilities.dp(3);
-                  hc.addView(bar,lp);
-                }else{
-                  hc.addView(bar);
-                }
-              }
+            if(hc instanceof FrameLayout){
+              FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+              lp.rightMargin=AndroidUtilities.dp(12);
+              lp.topMargin=AndroidUtilities.dp(3);
+              hc.addView(bar,lp);
+            }else{
+              hc.addView(bar);
             }
           }
           DrgPluginManager.H.postDelayed(this,450);
@@ -468,7 +478,21 @@ public class DrgProxy {
   private static long pLong(Object p,String... nms){if(p==null)return 0L;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null)return f.getLong(t);}catch(Throwable ignored){}}}return 0L;}
   private static boolean pBool(Object p,String... nms){if(p==null)return false;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null)return f.getBoolean(t);}catch(Throwable ignored){}}}return false;}
   private static void pSet(Object p,Object val,String... nms){if(p==null)return;for(Object t:new Object[]{p,getSettingsObj(p)}){if(t==null)continue;for(String n:nms){try{Field f=findField(t.getClass(),n);if(f!=null){f.set(t,val);return;}}catch(Throwable ignored){}}}}
-  private static String tgStr(String k,String uk,String ru,String en){return DrgPluginManager.tgStr(k,uk,ru,en);}
+
+  private static String tgStr(String k,String uk,String ru,String en){
+    try{
+      Context c=ApplicationLoader.applicationContext;
+      String[] pkgs={"org.telegram.messenger","org.telegram.messenger.web",c.getPackageName()};
+      for(String pkg:pkgs){
+        int id=c.getResources().getIdentifier(k,"string",pkg);
+        if(id!=0){
+          String s=LocaleController.getString(id);
+          if(s!=null&&!s.isEmpty())return s;
+        }
+      }
+    }catch(Throwable ignored){}
+    return DrgPluginManager.tgStr(k,uk,ru,en);
+  }
   private static String tr(String uk,String ru,String en){return DrgPluginManager.tr(uk,ru,en);}
 
   private static String readHttps(String urlStr){
