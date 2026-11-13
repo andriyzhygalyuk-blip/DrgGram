@@ -2,7 +2,6 @@ package org.telegram.messenger;
 import android.media.AudioRecord;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.Random;
 
 public class DrgVoice {
   private static final String[] LANGS={"en","uk","ru","ar","fa","tr","de","fr","es","it","pt","pl","id","hi","zh","ja","ko","uz","kk","be","az","vi","th","nl","cs","ro","he"};
@@ -15,7 +14,7 @@ public class DrgVoice {
     {"Robotic","Роботизований","Роботизированный","آلي","رباتیک","Robotik","Robotisch","Robotique","Robótico","Robotico","Robótico","Robotyczny","Robotik","रोबोटिक","机械音","ロボット","로봇","Robot","Робот","Рабатызаваны","Robot","Robot","หุ่นยนต์","Robotachtig","Robotický","Robotic","רובוטי"},
     {"Child","Дитина","Ребёнок","طفل","کودک","Çocuk","Kind","Enfant","Niño","Bambino","Criança","Dziecko","Anak-anak","बच्चा","童声","子供","어린이","Bola","Бала","Дзіця","Uşaq","Trẻ em","เด็ก","Kind","Dítě","Copil","ילד"},
     {"Studio Radio","Студійний / Радіо","Студийный / Радио","استوديو / راديو","استودیو رادیو","Stüdyo Radyo","Studio Radio","Studio Radio","Estudio Radio","Studio Radio","Estúdio Rádio","Studio Radio","Radio Studio","स्टूडियो रेडियो","电台播音","スタジオラジオ","스튜디오 라디오","Studiya radio","Студия радио","Студыйны / Радыё","Studiya radio","Phòng thu Radio","สตูดิโอเรดิโอ","Studio Radio","Studiový / Rádio","Studio Radio","אולפן רדיו"},
-    {"Whisper ASMR","Шепіт / АСМР","Шёпот / АСМР","همس / ASMR","نجوا / ASMR","Fısıltı ASMR","Flüstern ASMR","Chuchotement","Susurro ASMR","Sussurro ASMR","Sussurro ASMR","Szept ASMR","Bisikan ASMR","फुसफुसाहट ASMR","耳语 ASMR","ささやき ASMR","속삭임 ASMR","Shivirlash","Сыбыр ASMR","Шэпт / АСМР","Pıçıltı ASMR","Thì thầm ASMR","กระซิบ ASMR","Fluisteren ASMR","Šepot ASMR","Șoaptă ASMR","לחישה ASMR"},
+    {"Mickey Mouse","Міккі Маус","Микки Маус","ميكي ماوس","میکی ماوس","Miki Fare","Micky Maus","Mickey Mouse","Mickey Mouse","Topolino","Mickey Mouse","Myszka Miki","Mickey Mouse","मिकी माउस","米老鼠","ミッキーマウス","미키 마우스","Mikki Maus","Микки Маус","Мікі Маўс","Mikki Maus","Chuột Mickey","มิกกี้เมาส์","Mickey Mouse","Myšák Mickey","Mickey Mouse","מיקי מאוס"},
     {"Demon","Демон / Монстр","Демон / Монстр","شيطان / وحش","هیولا","İblis / Canavar","Dämon","Démon","Demonio","Demone","Demônio","Demon","Iblis","राक्षस","恶魔","悪魔","악마","Iblis","Жын / Монстр","Дэман / Монстар","İblis","Ác quỷ","ปีศาจ","Demon","Démon","Demon","שד"},
     {"Walkie-Talkie","Рація / Мегафон","Рация / Мегафон","لاسلكي","بی‌سیم","Telsiz","Funkgerät","Talkie-walkie","Walkie-talkie","Walkie-talkie","Rádio comunicador","Krótkofalówka","Walkie-Talkie","वॉकी-टॉकी","对讲机","トランシーバー","무전기","Ratsiya","Рация","Рацыя / Мегафон","Ratsiya","Bộ đàm","วิทยุสื่อสาร","Portofoon","Vysílačka","Walkie-Talkie","מכשיר קשר"},
     {"Anime Cute","Аніме / Милий","Аниме / Милый","أنمي لطيف","انیمه ناز","Anime Tatlı","Anime Süß","Anime Mignon","Anime Lindo","Anime Dolce","Anime Fofo","Anime Słodki","Anime Imut","एनीमे क्यूट","二次元萌音","アニメ風","애니메 큐트","Anime yoqimli","Аниме сүйкімді","Анімэ / Мілы","Anime şirin","Anime dễ thương","อนิเมะน่ารัก","Anime Schattig","Anime Roztomilý","Anime Drăguț","אנימה חמוד"}
@@ -27,9 +26,8 @@ public class DrgVoice {
   private static int sr=0,hopOut=160,winLen=320,search=80,lastMode=-1;
   private static long inWrite=0,anchor=0,outWrite=0,outRead=0,lastCallMs=0;
   private static boolean hasPrevTail=false;
-  private static double robP1=0,robP2=0,noiseState=0;
+  private static double robP1=0,robP2=0;
   private static final Biquad bq1=new Biquad(),bq2=new Biquad(),bq3=new Biquad(),bq4=new Biquad();
-  private static final Random rnd=new Random();
   private static final Object LOCK=new Object();
 
   private static class Biquad {
@@ -101,8 +99,8 @@ public class DrgVoice {
         bq1.setHPF(sr,210,0.72);bq2.setPeak(sr,650,1.1,2.5);bq3.setPeak(sr,3400,1.3,-3.0);
       }else if(mode==7){// Studio Radio
         bq1.setHPF(sr,75,0.75);bq2.setPeak(sr,115,0.9,4.5);bq3.setPeak(sr,3100,1.1,3.0);
-      }else if(mode==8){// Whisper ASMR
-        bq1.setHPF(sr,850,0.7);bq2.setPeak(sr,2800,1.0,2.5);bq3.setLPF(sr,6800,0.7);
+      }else if(mode==8){// Mickey Mouse
+        bq1.setHPF(sr,260,0.75);bq2.setPeak(sr,950,1.1,3.5);bq3.setPeak(sr,2400,1.2,2.5);bq4.setLPF(sr,6500,0.7);
       }else if(mode==9){// Demon
         bq1.setHPF(sr,50,0.7);bq2.setPeak(sr,95,0.9,4.5);bq3.setLPF(sr,3500,0.75);
       }else if(mode==10){// Walkie-Talkie
@@ -115,7 +113,7 @@ public class DrgVoice {
       java.util.Arrays.fill(inBuf,0f);
       java.util.Arrays.fill(outBuf,0f);
       inWrite=anchor=outWrite=outRead=0;
-      hasPrevTail=false;robP1=robP2=noiseState=0;
+      hasPrevTail=false;robP1=robP2=0;
     }
     lastCallMs=System.currentTimeMillis();
   }
@@ -129,7 +127,7 @@ public class DrgVoice {
       case 5:return 0.96;
       case 6:return 1.72;
       case 7:return 0.93;
-      case 8:return 1.12;
+      case 8:return 2.05;
       case 9:return 0.66;
       case 10:return 1.00;
       case 11:return 1.66;
@@ -242,10 +240,6 @@ public class DrgVoice {
           robP1+=2.0*Math.PI*55.0/sr;if(robP1>2.0*Math.PI)robP1-=2.0*Math.PI;
           robP2+=2.0*Math.PI*110.0/sr;if(robP2>2.0*Math.PI)robP2-=2.0*Math.PI;
           y=y*(0.65f+0.45f*(float)Math.sin(robP1)+0.2f*(float)Math.cos(robP2));
-        }else if(mode==8){
-          float env=Math.abs(y);
-          noiseState=noiseState*0.75+(rnd.nextFloat()*2f-1f)*0.25;
-          y=y*0.18f+(float)noiseState*(0.15f+env*3.2f);
         }else if(mode==9){
           robP1+=2.0*Math.PI*32.0/sr;if(robP1>2.0*Math.PI)robP1-=2.0*Math.PI;
           y=y*(0.85f+0.25f*(float)Math.sin(robP1))*1.18f;
@@ -255,8 +249,7 @@ public class DrgVoice {
           y=(float)Math.tanh(y*1.45f)*0.9f;
         }
         y=bq1.run(y);y=bq2.run(y);y=bq3.run(y);
-        if(mode==1||mode==2||mode==11)y=bq4.run(y);
-        if(mode==1||mode==2||mode==11)y*=1.12f;
+        if(mode==1||mode==2||mode==8||mode==11){y=bq4.run(y);y*=1.12f;}
         y=y/(1.0f+Math.abs(y)*0.18f);
         int out=Math.round(y*32767.0f);
         pcm[off+i]=(short)Math.max(-32768,Math.min(32767,out));
