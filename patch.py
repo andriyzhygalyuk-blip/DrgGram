@@ -184,6 +184,7 @@ patch("ui/ActionBar/BaseFragment.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*
 patch("ui/ActionBar/BaseFragment.java", r"(public\s+void\s+onTransitionAnimationEnd\s*\(\s*boolean\s+(\w+)\s*,\s*boolean\s+(\w+)\s*\)\s*\{)", r"\1 if (\2 && this instanceof org.telegram.ui.ProxyListActivity) { org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView); }", 0)
 patch("ui/ProxyListActivity.java", r"(return\s+fragmentView\s*;)", r"org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView); \1", 0)
 patch("ui/ProxyListActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView);", 0)
+patch("ui/ProxyListActivity.java", r"((?:private|public|protected)\s+void\s+checkProxyList\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.regRecheck(this, () -> checkProxyList());", 0)
 patch("messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
 patch("messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
 patch("messenger/BuildVars.java", r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = 20904539;')
