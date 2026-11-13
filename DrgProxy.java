@@ -6,6 +6,7 @@ import android.graphics.drawable.*;
 import android.net.Uri;
 import android.os.Build;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.*;
 import android.widget.*;
@@ -65,13 +66,38 @@ public class DrgProxy {
     };
   }
 
-  private static Drawable makeBlackOutlinePill(int rippleTint){
+  private static int blendColor(int c1,int c2,float ratio){
+    float inv=1f-ratio;
+    int a=Math.round(Color.alpha(c1)*inv+Color.alpha(c2)*ratio);
+    int r=Math.round(Color.red(c1)*inv+Color.red(c2)*ratio);
+    int g=Math.round(Color.green(c1)*inv+Color.green(c2)*ratio);
+    int b=Math.round(Color.blue(c1)*inv+Color.blue(c2)*ratio);
+    return Color.argb(a,r,g,b);
+  }
+
+  private static boolean isDarkSurface(int c){
+    if(Theme.isCurrentThemeDark())return true;
+    float lum=(0.299f*Color.red(c)+0.587f*Color.green(c)+0.114f*Color.blue(c))/255f;
+    return lum<0.5f;
+  }
+
+  private static Drawable makeAdaptivePill(int rippleTint,boolean dark){
+    int cardBg=Theme.getColor(Theme.key_windowBackgroundWhite);
+    int fill;
+    if(dark){
+      float lum=(0.299f*Color.red(cardBg)+0.587f*Color.green(cardBg)+0.114f*Color.blue(cardBg))/255f;
+      fill=blendColor(cardBg,0xFFFFFFFF,lum<0.08f?0.10f:0.12f);
+    }else{
+      fill=0xFFFFFFFF;
+    }
     GradientDrawable gd=new GradientDrawable();
-    gd.setColor(0xFF000000);
-    gd.setStroke(Math.max(1,AndroidUtilities.dp(1)),0xFFFFFFFF);
+    gd.setColor(fill);
+    if(!dark){
+      gd.setStroke(Math.max(1,AndroidUtilities.dp(0.8f)),0x14000000);
+    }
     gd.setCornerRadius(AndroidUtilities.dp(14));
     if(Build.VERSION.SDK_INT>=21){
-      int rpl=(rippleTint&0x00FFFFFF)|0x40000000;
+      int rpl=(rippleTint&0x00FFFFFF)|(dark?0x38000000:0x22000000);
       return new RippleDrawable(ColorStateList.valueOf(rpl),gd,gd);
     }
     return gd;
@@ -128,6 +154,18 @@ public class DrgProxy {
     return s==null?"":s.replace('’','\'').replace('ʼ','\'').trim();
   }
 
+  private static boolean isSecretLabel(String s,String secKey1){
+    if(s==null||s.isEmpty())return false;
+    return s.equalsIgnoreCase(secKey1)||s.equalsIgnoreCase("Секрет")||s.equalsIgnoreCase("Secret")||s.equalsIgnoreCase("Ключ")||s.equalsIgnoreCase("Key")||s.equalsIgnoreCase("Schlüssel")||s.equalsIgnoreCase("Clave")||s.equalsIgnoreCase("Clé")||s.equalsIgnoreCase("Klucz")||s.equalsIgnoreCase("Chave")||s.equalsIgnoreCase("Chiave")||s.equalsIgnoreCase("Anahtar")||s.equalsIgnoreCase("مفتاح")||s.equalsIgnoreCase("کلید")||s.equalsIgnoreCase("密钥");
+  }
+
+  private static boolean looksLikeMtSecret(String val){
+    if(val==null)return false;
+    String c=val.replaceAll("\\s+","");
+    if(c.length()<32)return false;
+    return c.matches("^(?:dd|ee)?[0-9a-fA-F]{32,}$")||c.matches("^[A-Za-z0-9_-]{32,}$");
+  }
+
   public static void onBottomSheetShown(final BottomSheet bs){
     if(bs==null)return;
     for(int delay:new int[]{40,140,320}){
@@ -141,13 +179,15 @@ public class DrgProxy {
           View srvLabelView=null;
           ViewGroup table=null,srvRow=null;
           String srvAddress="",secVal="";
+          boolean hasHexSecret=false;
           String srvKey1=tgStr("UseProxyAddress","Сервер","Сервер","Server");
           String secKey1=tgStr("UseProxySecret","Секрет","Секрет","Secret");
 
           for(View v:all){
             String s=getViewText(v);
             if(s.isEmpty())continue;
-            if(srvLabelView==null&&(s.equalsIgnoreCase(srvKey1)||s.equalsIgnoreCase("Сервер")||s.equalsIgnoreCase("Server"))){
+            if(looksLikeMtSecret(s))hasHexSecret=true;
+            if(srvLabelView==null&&(s.equalsIgnoreCase(srvKey1)||s.equalsIgnoreCase("Сервер")||s.equalsIgnoreCase("Server")||s.equalsIgnoreCase("Адрас")||s.equalsIgnoreCase("Адрес")||s.equalsIgnoreCase("Адреса"))){
               srvLabelView=v;
               View p=v;
               while(p.getParent() instanceof ViewGroup){
@@ -166,7 +206,7 @@ public class DrgProxy {
                   }
                 }
               }
-            }else if(s.equalsIgnoreCase(secKey1)||s.equalsIgnoreCase("Секрет")||s.equalsIgnoreCase("Secret")){
+            }else if(isSecretLabel(s,secKey1)){
               if(v.getParent() instanceof ViewGroup){
                 List<View> rvs=new ArrayList<>();collect((ViewGroup)v.getParent(),rvs);
                 for(View rv:rvs){
@@ -179,10 +219,10 @@ public class DrgProxy {
             }
           }
           if(table==null||srvRow==null||srvAddress.isEmpty())return;
-          boolean isMt=!secVal.isEmpty();
+          boolean isMt=!secVal.isEmpty()||hasHexSecret;
           String typeTitle=DrgLang.get("type");
           String typeVal=isMt?DrgLang.get("mtproto"):"SOCKS5";
-          String countryTitle=tgStr("Country","Країна","Страна","Country");
+          String countryTitle=DrgLang.tg("Country","country");
 
           View addedType=addNativeTableRow(table,srvRow,typeTitle,typeVal,null);
           TextView[] countryOut={null};
@@ -215,12 +255,19 @@ public class DrgProxy {
             Object rowObj=m.invoke(table,key,val,null);
             if(rowObj instanceof View){
               View rv=(View)rowObj;
-              if(outTv!=null){
-                List<View> ch=new ArrayList<>();collect(rv,ch);
-                for(int i=ch.size()-1;i>=0;i--){
-                  if(ch.get(i) instanceof TextView){outTv[0]=(TextView)ch.get(i);break;}
+              List<View> ch=new ArrayList<>();collect(rv,ch);
+              TextView firstKey=null,lastVal=null;
+              for(View cv:ch){
+                if(cv instanceof TextView){
+                  if(firstKey==null)firstKey=(TextView)cv;
+                  lastVal=(TextView)cv;
                 }
               }
+              if(firstKey!=null){
+                firstKey.setSingleLine(true);
+                firstKey.setEllipsize(TextUtils.TruncateAt.END);
+              }
+              if(outTv!=null&&lastVal!=null)outTv[0]=lastVal;
               return rv;
             }
           }
@@ -229,7 +276,7 @@ public class DrgProxy {
     }catch(Throwable ignored){}
     Context ctx=table.getContext();
     LinearLayout r=new LinearLayout(ctx);r.setOrientation(LinearLayout.HORIZONTAL);r.setGravity(Gravity.CENTER_VERTICAL);
-    int kCol=0xFF8A94A3,vCol=Color.WHITE,kW=AndroidUtilities.dp(92),pL=AndroidUtilities.dp(14),pT=AndroidUtilities.dp(11);
+    int kCol=0xFF8A94A3,vCol=Color.WHITE,kW=AndroidUtilities.dp(96),pL=AndroidUtilities.dp(14),pT=AndroidUtilities.dp(11);
     try{
       List<View> sc=new ArrayList<>();collect(sampleRow,sc);
       TextView firstTv=null,secondTv=null;
@@ -241,13 +288,14 @@ public class DrgProxy {
       }
       if(firstTv!=null){
         kCol=firstTv.getCurrentTextColor();
-        if(firstTv.getWidth()>0)kW=firstTv.getWidth();
+        if(firstTv.getWidth()>0)kW=Math.max(firstTv.getWidth(),AndroidUtilities.dp(96));
         if(firstTv.getPaddingLeft()>0)pL=firstTv.getPaddingLeft();
         if(firstTv.getPaddingTop()>0)pT=firstTv.getPaddingTop();
       }
       if(secondTv!=null)vCol=secondTv.getCurrentTextColor();
     }catch(Throwable ignored){}
     TextView k=new TextView(ctx);k.setText(key);k.setTextColor(kCol);k.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14);
+    k.setSingleLine(true);k.setEllipsize(TextUtils.TruncateAt.END);
     k.setPadding(pL,pT,pL,pT);
     r.addView(k,new LinearLayout.LayoutParams(kW,-2));
     View vLine=new View(ctx);vLine.setBackgroundColor(0x22FFFFFF);
@@ -392,16 +440,21 @@ public class DrgProxy {
             final ViewGroup hc=targetHc;
             try{
               Method sh=hc.getClass().getMethod("setHeight",int.class);
-              sh.invoke(hc,58);
+              sh.invoke(hc,60);
             }catch(Throwable ignored){}
             boolean rtl=LocaleController.isRTL;
+            int cardBg=Theme.getColor(Theme.key_windowBackgroundWhite);
+            boolean dark=isDarkSurface(cardBg);
+
             final LinearLayout bar=new LinearLayout(ctx);
             bar.setTag("drg_hdr_bar");
             bar.setOrientation(LinearLayout.VERTICAL);
             bar.setGravity(rtl?Gravity.LEFT:Gravity.RIGHT);
+            bar.setClipToPadding(false);
+            bar.setClipChildren(false);
 
             int blueCol=Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2);
-            if(blueCol==0)blueCol=0xFF4CA3FF;
+            if(blueCol==0)blueCol=0xFF3390EC;
             int redCol=0xFFE56555;
             Typeface tf=null;
             try{tf=AndroidUtilities.getTypeface("fonts/rmedium.ttf");}catch(Throwable ignored){}
@@ -412,8 +465,9 @@ public class DrgProxy {
             tvRef.setTextSize(TypedValue.COMPLEX_UNIT_DIP,11.5f);
             tvRef.setIncludeFontPadding(false);
             if(tf!=null)tvRef.setTypeface(tf);
-            tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(3),AndroidUtilities.dp(10),AndroidUtilities.dp(3));
-            tvRef.setBackground(makeBlackOutlinePill(blueCol));
+            tvRef.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(3.5f),AndroidUtilities.dp(10),AndroidUtilities.dp(3.5f));
+            tvRef.setBackground(makeAdaptivePill(blueCol,dark));
+            if(!dark&&Build.VERSION.SDK_INT>=21)tvRef.setElevation(AndroidUtilities.dp(1.5f));
             tvRef.setOnClickListener(clk->doRefreshProxies(bf));
             LinearLayout.LayoutParams refLp=new LinearLayout.LayoutParams(-2,-2);
             refLp.bottomMargin=AndroidUtilities.dp(3);
@@ -425,8 +479,9 @@ public class DrgProxy {
             tvDel.setTextSize(TypedValue.COMPLEX_UNIT_DIP,11.5f);
             tvDel.setIncludeFontPadding(false);
             if(tf!=null)tvDel.setTypeface(tf);
-            tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(3),AndroidUtilities.dp(10),AndroidUtilities.dp(3));
-            tvDel.setBackground(makeBlackOutlinePill(redCol));
+            tvDel.setPadding(AndroidUtilities.dp(10),AndroidUtilities.dp(3.5f),AndroidUtilities.dp(10),AndroidUtilities.dp(3.5f));
+            tvDel.setBackground(makeAdaptivePill(redCol,dark));
+            if(!dark&&Build.VERSION.SDK_INT>=21)tvDel.setElevation(AndroidUtilities.dp(1.5f));
             tvDel.setOnClickListener(clk->doDeleteUnavailableProxies(bf));
             bar.addView(tvDel,new LinearLayout.LayoutParams(-2,-2));
 
