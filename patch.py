@@ -144,7 +144,7 @@ for root, _, files in os.walk("."):
         with open(p, "r", encoding="utf-8") as file: m = file.read()
         m = m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram.")
         if "largeHeap" not in m: m = m.replace("<application", '<application android:largeHeap="true"', 1)
-        for perm in ["RECEIVE_SMS", "READ_SMS", "REQUEST_INSTALL_PACKAGES"]:
+        for perm in ["RECEIVE_SMS", "READ_SMS"]:
           m = re.sub(rf'<uses-permission\b(?:(?!</uses-permission>|/>|>).)*?android\.permission\.{perm}(?:(?!</uses-permission>|/>|>).)*?(?:/>|>\s*</uses-permission>)\s*', '', m, flags=re.S)
         for al, idx in man_slots.items():
           def fix_al(mt, i=idx):
@@ -174,6 +174,51 @@ def patch(rel, pat, rep, cnt=1):
   if os.path.exists(p):
     with open(p, "r", encoding="utf-8") as f: s = f.read()
     with open(p, "w", encoding="utf-8") as f: f.write(re.sub(pat, rep, s, count=cnt, flags=re.S))
+
+def patch_apk_mime():
+  p = J + "messenger/AndroidUtilities.java"
+  if not os.path.exists(p): return
+  with open(p, "r", encoding="utf-8") as f: s = f.read()
+  if "fixApkMime" in s: return
+  out, i, n = [], 0, len(s)
+  tok = ".setDataAndType("
+  while i < n:
+    idx = s.find(tok, i)
+    if idx < 0:
+      out.append(s[i:])
+      break
+    out.append(s[i:idx])
+    j = idx + len(tok)
+    depth, comma, end = 1, -1, -1
+    in_str, esc = False, False
+    while j < n and depth > 0:
+      ch = s[j]
+      if in_str:
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == '"': in_str = False
+      else:
+        if ch == '"': in_str = True
+        elif ch == "(": depth += 1
+        elif ch == ")":
+          depth -= 1
+          if depth == 0: end = j; break
+        elif ch == "," and depth == 1 and comma < 0:
+          comma = j
+      j += 1
+    if comma > 0 and end > comma:
+      a1 = s[idx + len(tok):comma].strip()
+      a2 = s[comma + 1:end].strip()
+      if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", a1):
+        out.append(f".setDataAndType({a1}, org.telegram.messenger.DrgPluginManager.fixApkMime({a1}, {a2}))")
+      else:
+        out.append(s[idx:end + 1])
+      i = end + 1
+    else:
+      out.append(tok)
+      i = idx + len(tok)
+  with open(p, "w", encoding="utf-8") as f: f.write("".join(out))
+patch_apk_mime()
 
 patch("ui/IntroActivity.java", r"return\s+fragmentView\s*;", "org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView); return fragmentView;", 0)
 patch("ui/IntroActivity.java", r"headerTextView\.setText\([^)]*\);", 'headerTextView.setText("DrgGram");', 0)
