@@ -442,7 +442,7 @@ public class DrgPluginManager {
   public static String getMenuButtonTitle(){return inChatScreen?"DrgPlugins":tgStr("ProxySettings","Проксі","Прокси","Proxy");}
   public static void relocateSubItemToSwipeBack(View sub,ActionBarPopupWindow.ActionBarPopupWindowLayout host){try{if(sub==null||host==null)return;if(sub instanceof ActionBarMenuSubItem)((ActionBarMenuSubItem)sub).setText(getMenuButtonTitle());List<View> all=new ArrayList<>();collectViews(host,all);ViewGroup target=null;for(View v:all){if(v instanceof ActionBarMenuSubItem&&v!=sub&&v.getParent() instanceof ViewGroup){target=(ViewGroup)v.getParent();break;}}if(target!=null){if(sub.getParent() instanceof ViewGroup&&sub.getParent()!=target){ViewGroup oldP=(ViewGroup)sub.getParent();oldP.removeView(sub);for(int i=oldP.getChildCount()-1;i>=0;i--)if(oldP.getChildAt(i).getHeight()<=AndroidUtilities.dp(12))oldP.removeViewAt(i);target.addView(sub);}for(int i=target.getChildCount()-1;i>=0;i--){View ch=target.getChildAt(i);if("drg_in_item".equals(ch.getTag()))target.removeViewAt(i);else ch.setVisibility(View.VISIBLE);}}}catch(Throwable ignored){}}
 
-  private static void styleSubRow(ActionBarMenuSubItem row,View rightView,int rightWdp,int rightHdp){
+  private static void styleSubRow(ActionBarMenuSubItem row,View rightView,int rightWdp,int rightHdp,int minStartDp){
     try{
       row.setMinimumWidth(AndroidUtilities.dp(248));
       for(int i=0;i<row.getChildCount();i++){
@@ -455,6 +455,11 @@ public class DrgPluginManager {
           ViewGroup.LayoutParams lp=tv.getLayoutParams();
           if(lp instanceof ViewGroup.MarginLayoutParams){
             ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)lp;
+            if(minStartDp>0){
+              int needStart=AndroidUtilities.dp(minStartDp);
+              if(Build.VERSION.SDK_INT>=17)mlp.setMarginStart(needStart);
+              if(mlp.leftMargin<needStart)mlp.leftMargin=needStart;
+            }
             int needEnd=AndroidUtilities.dp(rightView!=null?(rightWdp+22):18);
             if(Build.VERSION.SDK_INT>=17)mlp.setMarginEnd(needEnd);
             if(mlp.rightMargin<needEnd)mlp.rightMargin=needEnd;
@@ -469,6 +474,10 @@ public class DrgPluginManager {
         row.addView(rightView,rlp);
       }
     }catch(Throwable ignored){}
+  }
+
+  private static void styleSubRow(ActionBarMenuSubItem row,View rightView,int rightWdp,int rightHdp){
+    styleSubRow(row,rightView,rightWdp,rightHdp,0);
   }
 
   private static void updateSubLeftIcon(ActionBarMenuSubItem row,Drawable d){
@@ -736,7 +745,7 @@ public class DrgPluginManager {
               }
             }
             BackupImageView av=new BackupImageView(ctx);
-            av.setRoundRadius(AndroidUtilities.dp(16));
+            av.setRoundRadius(AndroidUtilities.dp(14));
             AvatarDrawable ad=new AvatarDrawable();
             if(u!=null){
               try{ad.setInfo(a,u);}catch(Throwable t1){try{ad.setInfo(u);}catch(Throwable ignored){}}
@@ -745,13 +754,13 @@ public class DrgPluginManager {
               try{ad.setInfo(uid,title,null);}catch(Throwable ignored){}
               av.setImageDrawable(ad);
             }
-            FrameLayout.LayoutParams alp=new FrameLayout.LayoutParams(AndroidUtilities.dp(32),AndroidUtilities.dp(32),Gravity.START|Gravity.CENTER_VERTICAL);
+            FrameLayout.LayoutParams alp=new FrameLayout.LayoutParams(AndroidUtilities.dp(28),AndroidUtilities.dp(28),Gravity.START|Gravity.CENTER_VERTICAL);
             if(Build.VERSION.SDK_INT>=17)alp.setMarginStart(AndroidUtilities.dp(12));
             alp.leftMargin=AndroidUtilities.dp(12);
             rSub.addView(av,alp);
 
             final View rTgl=DrgIcons.makeSwitchView(ctx,isWatched(a,uid));
-            styleSubRow(rSub,rTgl,38,22);
+            styleSubRow(rSub,rTgl,38,22,54);
             rSub.setOnClickListener(rv->{
               toggleWatch(a,uid);
               DrgIcons.setSwitchState(rTgl,isWatched(a,uid));
