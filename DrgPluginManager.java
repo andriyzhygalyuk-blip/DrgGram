@@ -5,6 +5,7 @@ import android.content.*;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.media.*;
+import android.net.Uri;
 import android.os.*;
 import android.text.*;
 import android.text.style.ReplacementSpan;
@@ -54,6 +55,18 @@ public class DrgPluginManager {
   public static final Handler H=new Handler(Looper.getMainLooper());
   private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
   private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
+  public static String fixApkMime(Uri uri,String mime){
+    if(uri!=null){
+      try{
+        String dec=Uri.decode(uri.toString());
+        if(dec!=null){
+          String l=dec.toLowerCase(Locale.US);
+          if(l.endsWith(".apk")||l.contains(".apk?")||l.contains(".apk#"))return "application/vnd.android.package-archive";
+        }
+      }catch(Throwable ignored){}
+    }
+    return mime;
+  }
   private static synchronized void ensureBgCache(){
     if(bgCacheReady)return;
     try{
