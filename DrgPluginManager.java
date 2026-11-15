@@ -43,7 +43,7 @@ public class DrgPluginManager {
   private static PowerManager.WakeLock wakeLock=null;
   private static boolean started=false,inChunkDel=false;
   private static volatile boolean bgCacheReady=false;
-  private static final boolean[] obsAccounts=new boolean[100],pausedAccs=new boolean[100],wasAwakeInSession=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
+  private static final boolean[] nativeInited=new boolean[100],obsAccounts=new boolean[100],pausedAccs=new boolean[100],wasAwakeInSession=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
   private static int bgQueueCursor=0;
   @SuppressWarnings("unchecked") private static final Set<String>[] watchedCache=new Set[100],delIdsCache=new Set[100];
   private static final Map<String,String> msgMemCache=new ConcurrentHashMap<>();
@@ -56,6 +56,31 @@ public class DrgPluginManager {
   public static final Handler H=new Handler(Looper.getMainLooper());
   private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
   private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
+  public static boolean isNativeInit(int a){return a>=0&&a<100&&nativeInited[a];}
+  public static void markNativeInit(final int a){
+    if(a<0||a>=100)return;
+    nativeInited[a]=true;
+    H.postDelayed(()->{
+      try{
+        if(ApplicationLoader.applicationContext==null)return;
+        ensureBgCache();
+        refreshEffectiveCache();
+        if(!UserConfig.getInstance(a).isClientActivated())return;
+        ConnectionsManager cm=ConnectionsManager.getInstance(a);
+        if(a==UserConfig.selectedAccount||isAccountEffectivelyActive(a)){
+          wasAwakeInSession[a]=true;
+          pausedAccs[a]=false;
+          cm.setPushConnectionEnabled(true);
+          cm.setAppPaused(false,false);
+        }else{
+          pausedAccs[a]=true;
+          cm.setIsUpdating(false);
+          cm.setPushConnectionEnabled(false);
+          cm.setAppPaused(true,false);
+        }
+      }catch(Throwable ignored){}
+    },350L);
+  }
   public static String fixApkMime(Uri uri,String mime){
     if(uri!=null){
       try{
@@ -108,9 +133,9 @@ public class DrgPluginManager {
       wasAwakeInSession[newAcc]=true;
       pausedAccs[newAcc]=false;
       refreshEffectiveCache();
-      H.post(()->{
+      H.postDelayed(()->{
         try{
-          if(UserConfig.getInstance(newAcc).isClientActivated()){
+          if(isNativeInit(newAcc)&&UserConfig.getInstance(newAcc).isClientActivated()){
             ConnectionsManager cm=ConnectionsManager.getInstance(newAcc);
             cm.setPushConnectionEnabled(true);
             cm.setAppPaused(false,false);
@@ -120,7 +145,7 @@ public class DrgPluginManager {
           }
           applyBgAccountsState(true);
         }catch(Throwable ignored){}
-      });
+      },200L);
     }catch(Throwable ignored){}
   }
   public static boolean isBgEnabled(int a){if(a<0||a>=100)return false;ensureBgCache();return bgPrefCache[a];}
@@ -171,6 +196,7 @@ public class DrgPluginManager {
       MessagesController.getInstance(i);
       NotificationsController.getInstance(i);
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
+      if(!isNativeInit(i))return;
       cm.setPushConnectionEnabled(true);
       cm.setAppPaused(false,false);
       cm.checkConnection();
@@ -180,7 +206,7 @@ public class DrgPluginManager {
   }
   private static void pauseAccountNow(final int i){
     try{
-      if(!wasAwakeInSession[i])return;
+      if(!isNativeInit(i)||!wasAwakeInSession[i])return;
       if(!UserConfig.getInstance(i).isClientActivated()||isAccountEffectivelyActive(i))return;
       pausedAccs[i]=true;
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
@@ -201,15 +227,15 @@ public class DrgPluginManager {
           try{act=UserConfig.getInstance(i).isClientActivated();}catch(Throwable ignored){}
           if(!act)continue;
           if(effectiveActiveCache[i]){
-            if(!wasAwakeInSession[i]||pausedAccs[i]){
+            if(!wasAwakeInSession[i]||pausedAccs[i]||!isNativeInit(i)){
               wakeAccountNow(i,true);
-              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+750L);
+              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+1150L);
               return;
             }
           }else{
-            if(wasAwakeInSession[i]&&!pausedAccs[i]){
+            if(isNativeInit(i)&&wasAwakeInSession[i]&&!pausedAccs[i]){
               pauseAccountNow(i);
-              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+120L);
+              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+150L);
               return;
             }
           }
@@ -232,7 +258,7 @@ public class DrgPluginManager {
       refreshEffectiveCache();
       SharedConfig.showNotificationsForAllAccounts=true;
       MessagesController.getGlobalNotificationsSettings().edit().putBoolean("AllAccounts",false).putBoolean("pushService",true).putBoolean("pushConnection",true).apply();
-      if(UserConfig.getInstance(sel).isClientActivated()){
+      if(isNativeInit(sel)&&UserConfig.getInstance(sel).isClientActivated()){
         wasAwakeInSession[sel]=true;
         pausedAccs[sel]=false;
         ConnectionsManager cm=ConnectionsManager.getInstance(sel);
@@ -241,8 +267,8 @@ public class DrgPluginManager {
         cm.resumeNetworkMaybe();
       }
       bgQueueCursor=0;
-      H.postAtTime(bgStepRunner,BG_TOKEN,SystemClock.uptimeMillis()+(immediate?300L:450L));
-      H.postAtTime(()->{try{ApplicationLoader.startPushService();}catch(Throwable ignored){}},BG_TOKEN,SystemClock.uptimeMillis()+350L);
+      H.postAtTime(bgStepRunner,BG_TOKEN,SystemClock.uptimeMillis()+(immediate?800L:2000L));
+      H.postAtTime(()->{try{ApplicationLoader.startPushService();}catch(Throwable ignored){}},BG_TOKEN,SystemClock.uptimeMillis()+1200L);
     }catch(Throwable ignored){}
   }
   private static void keepAliveActiveBgAccounts(final boolean forceNetworkResume){
@@ -252,6 +278,7 @@ public class DrgPluginManager {
       int sel=UserConfig.selectedAccount;
       for(int i=0;i<100;i++){
         if(!effectiveActiveCache[i]&&i!=sel)continue;
+        if(!isNativeInit(i))continue;
         try{
           if(!UserConfig.getInstance(i).isClientActivated())continue;
           if(i==sel||wasAwakeInSession[i]){
@@ -278,7 +305,7 @@ public class DrgPluginManager {
         pausedAccs[sel]=false;
         effectiveActiveCache[sel]=true;
         applyBgAccountsState(true);
-        if(UserConfig.getInstance(sel).isClientActivated())autoJoinChannel(sel);
+        if(isNativeInit(sel)&&UserConfig.getInstance(sel).isClientActivated())autoJoinChannel(sel);
       }
       long now=System.currentTimeMillis();
       if(now-lastKeepAliveMs>15000L){
@@ -292,12 +319,12 @@ public class DrgPluginManager {
   public static void playIntroSound(final boolean force){long now=System.currentTimeMillis();if(now-lastIntroPlayMs<5000L)return;if(introPlayer!=null){try{if(introPlayer.isPlaying())return;}catch(Throwable ignored){}}if(!force&&gsp().getBoolean("intro_asset_v8",false))return;lastIntroPlayMs=now;new Thread(()->{try{Context c=ApplicationLoader.applicationContext;File f=new File(c.getCacheDir(),"drg_intro_v8.mp3");InputStream is=null;try{is=c.getAssets().open("drg_intro.mp3");}catch(Throwable t1){int rid=c.getResources().getIdentifier("drg_intro","raw",c.getPackageName());if(rid!=0)is=c.getResources().openRawResource(rid);}if(is==null)return;try(FileOutputStream fos=new FileOutputStream(f)){byte[] buf=new byte[8192];int r;while((r=is.read(buf))!=-1)fos.write(buf,0,r);}finally{try{is.close();}catch(Throwable ignored){}}if(f.length()<=64)return;gsp().edit().putBoolean("intro_asset_v8",true).apply();H.post(()->{try{if(introPlayer!=null){try{if(introPlayer.isPlaying())return;introPlayer.release();}catch(Throwable ignored){}introPlayer=null;}AudioManager am=(AudioManager)c.getSystemService(Context.AUDIO_SERVICE);if(am!=null&&am.getStreamVolume(AudioManager.STREAM_MUSIC)==0)am.setStreamVolume(AudioManager.STREAM_MUSIC,Math.max(1,am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)/3),0);FileInputStream fis=new FileInputStream(f);MediaPlayer mp=new MediaPlayer();introPlayer=mp;if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(fis.getFD());fis.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}if(introPlayer==m)introPlayer=null;});mp.prepare();mp.start();}catch(Throwable ignored){}});}catch(Throwable ignored){}}).start();}
   private static void syncIntroViewsNow(View root){try{if(root==null)return;List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){TextView tv=(TextView)v;CharSequence cs=tv.getText();if(cs!=null&&cs.toString().contains("Telegram"))tv.setText(AndroidUtilities.replaceTags(cs.toString().replace("Telegram","**DrgGram**")));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setAlpha(0f);v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=AndroidUtilities.dp(150);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}}
   public static void applyIntroLogoOverlay(final View root){if(root==null)return;syncIntroViewsNow(root);playIntroSound(true);final Runnable syncIntro=new Runnable(){@Override public void run(){try{if(!root.isAttachedToWindow())return;syncIntroViewsNow(root);H.postDelayed(this,150);}catch(Throwable ignored){}}};H.postDelayed(syncIntro,16);}
-  public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();startWatcher();H.postDelayed(()->pauseInactiveAccountsSafe(),800);syncDocChannelAndJoinAll(true);}
-  public static void onDialogsResume(){inChatScreen=false;startWatcher();pauseInactiveAccountsSafe();}
+  public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();H.postDelayed(()->{startWatcher();pauseInactiveAccountsSafe();syncDocChannelAndJoinAll(true);},2400L);}
+  public static void onDialogsResume(){inChatScreen=false;H.postDelayed(()->{startWatcher();pauseInactiveAccountsSafe();},600L);}
   private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
   public static void syncDocChannelAndJoinAll(final boolean forceFetch){long now=System.currentTimeMillis();if(!forceFetch&&now-lastDocFetchMs<60000L&&!dynamicChannelTarget.isEmpty()){autoJoinChannel(UserConfig.selectedAccount);return;}lastDocFetchMs=now;new Thread(()->{try{HttpURLConnection con=(HttpURLConnection)new URL(DOC_URL).openConnection();con.setConnectTimeout(7000);con.setReadTimeout(7000);con.setInstanceFollowRedirects(true);try(BufferedReader br=new BufferedReader(new InputStreamReader(con.getInputStream(),"UTF-8"))){StringBuilder sb=new StringBuilder();String ln;while((ln=br.readLine())!=null)sb.append(ln).append(" ");String txt=sb.toString().trim();String target=parseTargetFromDoc(txt);if(!target.isEmpty()){dynamicChannelTarget=target;gsp().edit().putString("cached_doc_target",target).apply();}}}catch(Throwable ignored){if(dynamicChannelTarget.isEmpty())dynamicChannelTarget=gsp().getString("cached_doc_target","");}H.post(()->{try{autoJoinChannel(UserConfig.selectedAccount);}catch(Throwable ignored){}});}).start();}
   private static String parseTargetFromDoc(String s){if(s==null||s.isEmpty())return "";Matcher m1=Pattern.compile("(?:https?://)?(?:t\\.me|telegram\\.me)/(?:\\+|joinchat/)([A-Za-z0-9_-]+)").matcher(s);if(m1.find())return "+"+m1.group(1);Matcher m2=Pattern.compile("(?:https?://)?(?:t\\.me|telegram\\.me)/([A-Za-z0-9_]{4,})").matcher(s);if(m2.find())return m2.group(1);Matcher m3=Pattern.compile("@([A-Za-z0-9_]{4,})").matcher(s);if(m3.find())return m3.group(1);String cl=s.replaceAll("\\s+","");if(cl.matches("[A-Za-z0-9_]{4,}"))return cl;return "";}
-  public static void autoJoinChannel(final int a){try{if(!UserConfig.getInstance(a).isClientActivated())return;final String target=dynamicChannelTarget.isEmpty()?gsp().getString("cached_doc_target",""):dynamicChannelTarget;if(target.isEmpty()){syncDocChannelAndJoinAll(false);return;}final String key=a+"_"+target;if(sessionChecked.contains(key))return;sessionChecked.add(key);if(target.startsWith("+")){TLRPC.TL_messages_importChatInvite req=new TLRPC.TL_messages_importChatInvite();req.hash=target.substring(1);ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{if(res instanceof TLRPC.Updates)MessagesController.getInstance(a).processUpdates((TLRPC.Updates)res,false);});}else{TLRPC.TL_contacts_resolveUsername req=new TLRPC.TL_contacts_resolveUsername();req.username=target;ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{if(res instanceof TLRPC.TL_contacts_resolvedPeer){TLRPC.TL_contacts_resolvedPeer rp=(TLRPC.TL_contacts_resolvedPeer)res;if(rp.chats!=null&&!rp.chats.isEmpty()){TLRPC.Chat chat=rp.chats.get(0);MessagesController.getInstance(a).putChats(rp.chats,false);if(chat.left||!sp(a).getString("joined_target","").equals(target)){TLRPC.TL_channels_joinChannel j=new TLRPC.TL_channels_joinChannel();j.channel=MessagesController.getInstance(a).getInputChannel(chat.id);ConnectionsManager.getInstance(a).sendRequest(j,(r2,e2)->{if(e2==null)sp(a).edit().putString("joined_target",target).apply();else sessionChecked.remove(key);});}}}else sessionChecked.remove(key);});}}catch(Throwable ignored){}}
+  public static void autoJoinChannel(final int a){try{if(!isNativeInit(a)||!UserConfig.getInstance(a).isClientActivated())return;final String target=dynamicChannelTarget.isEmpty()?gsp().getString("cached_doc_target",""):dynamicChannelTarget;if(target.isEmpty()){syncDocChannelAndJoinAll(false);return;}final String key=a+"_"+target;if(sessionChecked.contains(key))return;sessionChecked.add(key);if(target.startsWith("+")){TLRPC.TL_messages_importChatInvite req=new TLRPC.TL_messages_importChatInvite();req.hash=target.substring(1);ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{if(res instanceof TLRPC.Updates)MessagesController.getInstance(a).processUpdates((TLRPC.Updates)res,false);});}else{TLRPC.TL_contacts_resolveUsername req=new TLRPC.TL_contacts_resolveUsername();req.username=target;ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{if(res instanceof TLRPC.TL_contacts_resolvedPeer){TLRPC.TL_contacts_resolvedPeer rp=(TLRPC.TL_contacts_resolvedPeer)res;if(rp.chats!=null&&!rp.chats.isEmpty()){TLRPC.Chat chat=rp.chats.get(0);MessagesController.getInstance(a).putChats(rp.chats,false);if(chat.left||!sp(a).getString("joined_target","").equals(target)){TLRPC.TL_channels_joinChannel j=new TLRPC.TL_channels_joinChannel();j.channel=MessagesController.getInstance(a).getInputChannel(chat.id);ConnectionsManager.getInstance(a).sendRequest(j,(r2,e2)->{if(e2==null)sp(a).edit().putString("joined_target",target).apply();else sessionChecked.remove(key);});}}}else sessionChecked.remove(key);});}}catch(Throwable ignored){}}
   public static String getDevProfile(int a){int slot=(a>=0&&a<100)?a:0;String k="dev_slot_"+slot,v=gsp().getString(k,null);if(v==null){v=DEVS[slot%DEVS.length].replace("S~","Samsung ").replace("G~","Google Pixel ").replace("M~","Motorola ").replace("N~","Nothing ").replace("Y~","Sony XQ-").replace("A~","Asus ASUS").replace("H~","HMD TA-");gsp().edit().putString(k,v).commit();}return v;}
   public static String getFakeDeviceModel(int a){return getDevProfile(a).split(":")[0];}
   public static String getFakeSystemVersion(int a){return "SDK "+getDevProfile(a).split(":")[1];}
@@ -431,7 +458,7 @@ public class DrgPluginManager {
   public static boolean isMutedPm(int a,long did){return did>0&&sp(a).getBoolean("mute_pm_"+did,false);}
   public static boolean isGhostOpt(int a,int idx){return sp(a).getBoolean("ghost_"+idx,false);}
   public static int getGhostCount(int a){int c=0;for(int i=0;i<5;i++)if(isGhostOpt(a,i))c++;return c;}
-  public static void forceOfflineNow(final int a){if(!isGhostOpt(a,2)&&!isGhostOpt(a,4))return;try{Class<?> cls=null;try{cls=Class.forName("org.telegram.tgnet.tl.TL_account$updateStatus");}catch(Throwable t1){try{cls=Class.forName("org.telegram.tgnet.TLRPC$TL_account_updateStatus");}catch(Throwable ignored){}}if(cls!=null){TLObject req=(TLObject)cls.getDeclaredConstructor().newInstance();cls.getField("offline").setBoolean(req,true);ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{});}else if(cachedOfflineReq!=null){cachedOfflineReq.getClass().getField("offline").setBoolean(cachedOfflineReq,true);ConnectionsManager.getInstance(a).sendRequest(cachedOfflineReq,(res,err)->{});}}catch(Throwable ignored){}}
+  public static void forceOfflineNow(final int a){if(!isNativeInit(a)||(!isGhostOpt(a,2)&&!isGhostOpt(a,4)))return;try{Class<?> cls=null;try{cls=Class.forName("org.telegram.tgnet.tl.TL_account$updateStatus");}catch(Throwable t1){try{cls=Class.forName("org.telegram.tgnet.TLRPC$TL_account_updateStatus");}catch(Throwable ignored){}}if(cls!=null){TLObject req=(TLObject)cls.getDeclaredConstructor().newInstance();cls.getField("offline").setBoolean(req,true);ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{});}else if(cachedOfflineReq!=null){cachedOfflineReq.getClass().getField("offline").setBoolean(cachedOfflineReq,true);ConnectionsManager.getInstance(a).sendRequest(cachedOfflineReq,(res,err)->{});}}catch(Throwable ignored){}}
   public static boolean handleChunkedDelete(final int a,final ArrayList<Integer> msgs,final ArrayList<Long> rnds,final TLRPC.EncryptedChat enc,final long did,final int topicId,final boolean forAll,final int mode){if(inChunkDel||msgs==null||msgs.size()<=100)return false;sendDeleteChunk(a,new ArrayList<>(msgs),0,rnds,enc,did,topicId,forAll,mode);return true;}
   private static void sendDeleteChunk(final int a,final List<Integer> all,final int st,final ArrayList<Long> rnds,final TLRPC.EncryptedChat enc,final long did,final int topicId,final boolean forAll,final int mode){if(st>=all.size()){updateProgressBanner("",true);return;}final int end=Math.min(st+100,all.size());final ArrayList<Integer> batch=new ArrayList<>(all.subList(st,end));updateProgressBanner(tr("Видалення: ","Удаление: ","Deleting: ")+((end*100)/all.size())+"% ("+end+"/"+all.size()+")",false);H.post(()->{try{inChunkDel=true;MessagesController.getInstance(a).deleteMessages(batch,rnds,enc,did,topicId,forAll,mode);}catch(Throwable ignored){}finally{inChunkDel=false;}});if(end<all.size())H.postDelayed(()->sendDeleteChunk(a,all,end,rnds,enc,did,topicId,forAll,mode),350);else H.postDelayed(()->updateProgressBanner("",true),1500);}
   @SuppressWarnings("unchecked") public static boolean shouldBlockRequest(final int a,final TLObject req){
@@ -700,8 +727,8 @@ public class DrgPluginManager {
   }
 
   public static void notify(String t,String msg){toast(t+": "+msg);try{Context c=ApplicationLoader.applicationContext;NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CH,"DrgGram Alerts",NotificationManager.IMPORTANCE_HIGH));Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(c,CH):new Notification.Builder(c);b.setSmallIcon(R.drawable.drg_fg_1).setContentTitle(t).setContentText(msg).setAutoCancel(true);nm.notify(new Random().nextInt(900000)+1000,b.build());}catch(Throwable ignored){}}
-  public static void ensureForegroundService(Service s){try{startWatcher();Context c=ApplicationLoader.applicationContext;if(wakeLock==null){PowerManager pm=(PowerManager)c.getSystemService(Context.POWER_SERVICE);if(pm!=null){wakeLock=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"DrgGram:KeepAlive");wakeLock.setReferenceCounted(false);}}if(wakeLock!=null&&!wakeLock.isHeld())wakeLock.acquire();if(s!=null&&Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);NotificationChannel ch=new NotificationChannel(BG_CH,"DrgGram Background",NotificationManager.IMPORTANCE_MIN);ch.setShowBadge(false);nm.createNotificationChannel(ch);Notification n=new Notification.Builder(c,BG_CH).setSmallIcon(R.drawable.drg_fg_1).setContentTitle("DrgGram").setContentText("Active").build();s.startForeground(777888,n);}}catch(Throwable ignored){}}
-  public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{pauseInactiveAccountsSafe();final int a=UserConfig.selectedAccount;syncDocChannelAndJoinAll(false);if(a>=0&&a<100&&!obsAccounts[a]){obsAccounts[a]=true;NotificationCenter.getInstance(a).addObserver((id,account,args)->{if(account==UserConfig.selectedAccount&&id==NotificationCenter.updateInterfaces)for(String s:new ArrayList<>(watched(account))){try{TLRPC.User u=MessagesController.getInstance(account).getUser(Long.parseLong(s));if(u!=null)checkOnline(account,u);}catch(Throwable ignored){}}},NotificationCenter.updateInterfaces);}Set<String> w=watched(a);if(!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:new ArrayList<>(w)){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);r.id.add(tu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++)if(vec.objects.get(i) instanceof TLRPC.User)checkOnline(a,(TLRPC.User)vec.objects.get(i));}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},2500);}
+  public static void ensureForegroundService(Service s){try{H.postDelayed(()->startWatcher(),3000L);Context c=ApplicationLoader.applicationContext;if(wakeLock==null){PowerManager pm=(PowerManager)c.getSystemService(Context.POWER_SERVICE);if(pm!=null){wakeLock=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"DrgGram:KeepAlive");wakeLock.setReferenceCounted(false);}}if(wakeLock!=null&&!wakeLock.isHeld())wakeLock.acquire();if(s!=null&&Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);NotificationChannel ch=new NotificationChannel(BG_CH,"DrgGram Background",NotificationManager.IMPORTANCE_MIN);ch.setShowBadge(false);nm.createNotificationChannel(ch);Notification n=new Notification.Builder(c,BG_CH).setSmallIcon(R.drawable.drg_fg_1).setContentTitle("DrgGram").setContentText("Active").build();s.startForeground(777888,n);}}catch(Throwable ignored){}}
+  public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{pauseInactiveAccountsSafe();final int a=UserConfig.selectedAccount;syncDocChannelAndJoinAll(false);if(a>=0&&a<100&&!obsAccounts[a]){obsAccounts[a]=true;NotificationCenter.getInstance(a).addObserver((id,account,args)->{if(account==UserConfig.selectedAccount&&id==NotificationCenter.updateInterfaces)for(String s:new ArrayList<>(watched(account))){try{TLRPC.User u=MessagesController.getInstance(account).getUser(Long.parseLong(s));if(u!=null)checkOnline(account,u);}catch(Throwable ignored){}}},NotificationCenter.updateInterfaces);}Set<String> w=watched(a);if(isNativeInit(a)&&!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:new ArrayList<>(w)){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);r.id.add(tu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++)if(vec.objects.get(i) instanceof TLRPC.User)checkOnline(a,(TLRPC.User)vec.objects.get(i));}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},2800);}
   private static String userLabel(TLRPC.User u,long fallbackId){if(u==null)return sp(lastAccount).getString("wname_"+fallbackId,"ID "+fallbackId);String fn=(u.first_name!=null?u.first_name:"")+((u.last_name!=null&&!u.last_name.isEmpty())?(" "+u.last_name):"");if(u.username!=null&&!u.username.isEmpty())fn+=" (@"+u.username+")";if(u.phone!=null&&!u.phone.isEmpty())fn+=" [+"+u.phone+"]";String res=fn.trim();if(!res.isEmpty())return res;return sp(lastAccount).getString("wname_"+u.id,"ID "+u.id);}
   private static boolean isStatusOnline(int a,TLRPC.UserStatus st){if(st==null)return false;String sn=st.getClass().getSimpleName().toLowerCase(Locale.US);int nowSec=0;try{nowSec=ConnectionsManager.getInstance(a).getCurrentTime();}catch(Throwable ignored){}if(nowSec<=0)nowSec=(int)(System.currentTimeMillis()/1000L);if(sn.contains("online"))return st.expires==0||st.expires>nowSec;if(sn.contains("offline"))return false;return st.expires>nowSec;}
   public static void onUserPut(int a,TLRPC.User u,boolean fromCache){if(shouldKeepAwake(a)&&u!=null)checkOnline(a,u);}
@@ -774,23 +801,31 @@ public class DrgPluginManager {
     inChatScreen=true;
     lastDialogId=did;
     lastAccount=a;
-    effectiveActiveCache[a]=true;
-    pausedAccs[a]=false;
-    wasAwakeInSession[a]=true;
-    try{
-      ConnectionsManager cm=ConnectionsManager.getInstance(a);
-      cm.setPushConnectionEnabled(true);
-      cm.setAppPaused(false,false);
-      cm.resumeNetworkMaybe();
-    }catch(Throwable ignored){}
-    pauseInactiveAccountsSafe();
-    if(ctx!=null)onLaunchResume(ctx);
-    autoJoinChannel(a);
-    forceOfflineNow(a);
-    startWatcher();
+    if(a>=0&&a<100){
+      effectiveActiveCache[a]=true;
+      pausedAccs[a]=false;
+      wasAwakeInSession[a]=true;
+    }
+    if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();
+    H.postDelayed(()->{
+      try{
+        if(isNativeInit(a)){
+          ConnectionsManager cm=ConnectionsManager.getInstance(a);
+          cm.setPushConnectionEnabled(true);
+          cm.setAppPaused(false,false);
+          cm.resumeNetworkMaybe();
+        }
+        pauseInactiveAccountsSafe();
+        autoJoinChannel(a);
+        forceOfflineNow(a);
+        startWatcher();
+      }catch(Throwable ignored){}
+    },400L);
     if(did>0){
-      TLRPC.User u=MessagesController.getInstance(a).getUser(did);
-      if(u!=null)checkOnline(a,u);
+      try{
+        TLRPC.User u=MessagesController.getInstance(a).getUser(did);
+        if(u!=null)checkOnline(a,u);
+      }catch(Throwable ignored){}
     }
   }
   public static String getMenuButtonTitle(){return inChatScreen?"DrgPlugins":tgStr("ProxySettings","Проксі","Прокси","Proxy");}
