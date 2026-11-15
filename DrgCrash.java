@@ -77,7 +77,6 @@ public class DrgCrash {
       long prevTs = p.getLong("stage_ts", 0L);
       if (!prevStage.isEmpty() && !"dialogs_onResume".equals(prevStage) && !"ready".equals(prevStage)) {
         p.edit().putString("prev_incomplete_stage", prevStage).putLong("prev_incomplete_ts", prevTs).commit();
-        // If previous launch died very early before LaunchActivity, save exit report immediately before anything else can crash
         if ("app_onCreate".equals(prevStage) || "postInit".equals(prevStage)) {
           String earlyReport = collectAbnormalExitReport(c, false);
           if (earlyReport != null) {
@@ -158,6 +157,7 @@ public class DrgCrash {
       boolean hasCrash = !javaCrash.isEmpty();
       long newestTs = lastHandledTs;
       StringBuilder exitSb = new StringBuilder();
+      boolean tracedFirstNative = false;
 
       if (Build.VERSION.SDK_INT >= 30) {
         try {
@@ -184,9 +184,12 @@ public class DrgCrash {
                 if (info.getDescription() != null && !info.getDescription().isEmpty()) {
                   exitSb.append("  desc: ").append(info.getDescription()).append("\n");
                 }
-                String trace = readShortStream(info.getTraceInputStream(), 5000);
-                if (!trace.isEmpty()) {
-                  exitSb.append("  trace:\n").append(trace).append("\n");
+                if (!tracedFirstNative && i < 3) {
+                  String trace = extractActiveTombstone(info.getTraceInputStream());
+                  if (!trace.isEmpty()) {
+                    tracedFirstNative = true;
+                    exitSb.append(trace).append("\n");
+                  }
                 }
               }
             }
@@ -210,6 +213,119 @@ public class DrgCrash {
       return report;
     } catch (Throwable ignored) {}
     return null;
+  }
+
+  private static String extractActiveTombstone(InputStream is) {
+    if (is == null) return "";
+    try {
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      byte[] buf = new byte[8192];
+      int total = 0, r;
+      while ((r = is.read(buf)) != -1) {
+        baos.write(buf, 0, r);
+        total += r;
+        if (total >= 524288) break;
+      }
+      is.close();
+      byte[] data = baos.toByteArray();
+      if (data.length == 0) return "";
+
+      List<String> tokens = new ArrayList<>();
+      StringBuilder cur = new StringBuilder();
+      for (byte b : data) {
+        int c = b & 0xFF;
+        if (c >= 0x20 && c <= 0x7E) {
+          cur.append((char) c);
+        } else {
+          if (cur.length() >= 2) {
+            String s = cur.toString().trim();
+            if (!s.isEmpty()) tokens.add(s);
+          }
+          cur.setLength(0);
+        }
+      }
+      if (cur.length() >= 2) {
+        String s = cur.toString().trim();
+        if (!s.isEmpty()) tokens.add(s);
+      }
+
+      List<Integer> x0Idxs = new ArrayList<>();
+      for (int i = 0; i < tokens.size(); i++) {
+        String t = tokens.get(i);
+        if (t.equals("x0") || t.startsWith("x0 ")) x0Idxs.add(i);
+      }
+
+      StringBuilder out = new StringBuilder();
+      out.append("  [Active / Crashing Threads from Tombstone]\n");
+      int headerEnd = x0Idxs.isEmpty() ? Math.min(tokens.size(), 25) : Math.max(0, x0Idxs.get(0) - 1);
+      for (int i = 0; i < headerEnd && i < 30; i++) {
+        String h = cleanToken(tokens.get(i));
+        if (h != null) out.append("  hdr: ").append(h).append("\n");
+      }
+
+      int activeShown = 0;
+      int skippedIdle = 0;
+      for (int k = 0; k < x0Idxs.size(); k++) {
+        int start = x0Idxs.get(k);
+        int end = (k + 1 < x0Idxs.size()) ? Math.max(start, x0Idxs.get(k + 1) - 1) : tokens.size();
+        String threadName = (start > 0) ? tokens.get(start - 1) : ("thread_" + k);
+
+        int pstIdx = start;
+        for (int j = start; j < Math.min(end, start + 45); j++) {
+          String tj = tokens.get(j);
+          if (tj.equals("pst") || tj.startsWith("pst ")) {
+            pstIdx = j + 1;
+            break;
+          }
+        }
+
+        List<String> frames = new ArrayList<>();
+        for (int j = pstIdx; j < end; j++) {
+          String ft = cleanToken(tokens.get(j));
+          if (ft != null) frames.add(ft);
+        }
+
+        String firstFrame = frames.isEmpty() ? "" : frames.get(0);
+        boolean isIdle = firstFrame.contains("__epoll_pwait")
+          || firstFrame.contains("syscall")
+          || firstFrame.contains("nanosleep")
+          || firstFrame.contains("__futex")
+          || firstFrame.contains("sched_yield");
+
+        if (isIdle && k > 0) {
+          skippedIdle++;
+          continue;
+        }
+
+        activeShown++;
+        out.append("  === THREAD: ").append(threadName).append(isIdle ? " (idle)" : " (ACTIVE/CRASH!)").append(" ===\n");
+        int lim = Math.min(frames.size(), 30);
+        for (int f = 0; f < lim; f++) {
+          out.append("    ").append(frames.get(f)).append("\n");
+        }
+        if (activeShown >= 10) break;
+      }
+      out.append("  (skipped idle threads: ").append(skippedIdle).append(")\n");
+      return out.toString();
+    } catch (Throwable t) {
+      return "  tombstone parse err: " + t.toString() + "\n";
+    }
+  }
+
+  private static String cleanToken(String t) {
+    if (t == null || t.length() < 2) return null;
+    if (t.matches("[0-9a-fA-F]{24,}")) return null;
+    if (t.equals("x0") || t.equals("pst") || t.equals("lr") || t.equals("sp") || t.equals("pc")) return null;
+    if (t.matches("x[0-9]{1,2}")) return null;
+    if (t.startsWith("u:r:")) return null;
+    int slash = t.lastIndexOf('/');
+    if (slash >= 0 && slash < t.length() - 1) {
+      String file = t.substring(slash + 1);
+      if (file.contains(".so") || file.contains(".oat") || file.contains(".vdex") || file.contains(".apk")) {
+        return "[" + file + "]";
+      }
+    }
+    return t;
   }
 
   private static boolean isAbnormalReason(int r, String incStage) {
@@ -293,24 +409,6 @@ public class DrgCrash {
       }
     } catch (Throwable ignored) {}
     return null;
-  }
-
-  private static String readShortStream(InputStream is, int maxChars) {
-    if (is == null) return "";
-    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
-      StringBuilder sb = new StringBuilder();
-      String line;
-      while ((line = br.readLine()) != null) {
-        sb.append(line).append("\n");
-        if (sb.length() >= maxChars) {
-          sb.append("...(truncated)\n");
-          break;
-        }
-      }
-      return sb.toString();
-    } catch (Throwable t) {
-      return "";
-    }
   }
 
   private static String reasonName(int r) {
