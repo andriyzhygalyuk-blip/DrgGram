@@ -76,6 +76,15 @@ public class DrgPluginManager {
   public static void markNativeInit(final int a){
     if(a<0||a>=100)return;
     nativeInited[a]=true;
+    try{
+      if(ApplicationLoader.applicationContext!=null){
+        ensureBgCache();
+        refreshEffectiveCache();
+        if(a!=UserConfig.selectedAccount&&!isAccountEffectivelyActive(a)){
+          pauseAccountNow(a);
+        }
+      }
+    }catch(Throwable ignored){}
     H.postDelayed(()->{
       try{
         if(ApplicationLoader.applicationContext==null)return;
@@ -89,10 +98,7 @@ public class DrgPluginManager {
           if(startupUiReady)cm.setPushConnectionEnabled(true);
           cm.setAppPaused(false,false);
         }else{
-          pausedAccs[a]=true;
-          cm.setIsUpdating(false);
-          cm.setPushConnectionEnabled(false);
-          cm.setAppPaused(true,false);
+          pauseAccountNow(a);
         }
       }catch(Throwable ignored){}
     },450L);
@@ -142,13 +148,17 @@ public class DrgPluginManager {
     try{
       if(newAcc<0||newAcc>=100)return;
       ensureBgCache();
-      if(lastActiveSwitched>=0&&lastActiveSwitched<100)wasAwakeInSession[lastActiveSwitched]=true;
+      int prevAcc=lastActiveSwitched;
+      if(prevAcc>=0&&prevAcc<100)wasAwakeInSession[prevAcc]=true;
       lastAccount=newAcc;
       lastActiveSwitched=newAcc;
       effectiveActiveCache[newAcc]=true;
       wasAwakeInSession[newAcc]=true;
       pausedAccs[newAcc]=false;
       refreshEffectiveCache();
+      if(prevAcc>=0&&prevAcc<100&&prevAcc!=newAcc&&!effectiveActiveCache[prevAcc]){
+        pauseAccountNow(prevAcc);
+      }
       H.postDelayed(()->{
         try{
           if(isNativeInit(newAcc)&&UserConfig.getInstance(newAcc).isClientActivated()){
@@ -222,8 +232,8 @@ public class DrgPluginManager {
   }
   private static void pauseAccountNow(final int i){
     try{
-      if(!isNativeInit(i)||!wasAwakeInSession[i])return;
-      if(!UserConfig.getInstance(i).isClientActivated()||isAccountEffectivelyActive(i))return;
+      if(!isNativeInit(i))return;
+      if(i==UserConfig.selectedAccount||isAccountEffectivelyActive(i))return;
       pausedAccs[i]=true;
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
       cm.setIsUpdating(false);
@@ -249,10 +259,8 @@ public class DrgPluginManager {
               return;
             }
           }else{
-            if(isNativeInit(i)&&wasAwakeInSession[i]&&!pausedAccs[i]){
+            if(isNativeInit(i)&&!pausedAccs[i]){
               pauseAccountNow(i);
-              H.postAtTime(this,BG_TOKEN,SystemClock.uptimeMillis()+150L);
-              return;
             }
           }
         }
@@ -274,6 +282,10 @@ public class DrgPluginManager {
       refreshEffectiveCache();
       SharedConfig.showNotificationsForAllAccounts=true;
       MessagesController.getGlobalNotificationsSettings().edit().putBoolean("AllAccounts",false).putBoolean("pushService",true).putBoolean("pushConnection",true).apply();
+      for(int i=0;i<100;i++){
+        if(i==sel||effectiveActiveCache[i])continue;
+        if(isNativeInit(i))pauseAccountNow(i);
+      }
       if(isNativeInit(sel)&&UserConfig.getInstance(sel).isClientActivated()){
         wasAwakeInSession[sel]=true;
         pausedAccs[sel]=false;
@@ -293,8 +305,11 @@ public class DrgPluginManager {
       refreshEffectiveCache();
       int sel=UserConfig.selectedAccount;
       for(int i=0;i<100;i++){
-        if(!effectiveActiveCache[i]&&i!=sel)continue;
         if(!isNativeInit(i))continue;
+        if(!effectiveActiveCache[i]&&i!=sel){
+          if(!pausedAccs[i])pauseAccountNow(i);
+          continue;
+        }
         try{
           if(!UserConfig.getInstance(i).isClientActivated())continue;
           if(i==sel||wasAwakeInSession[i]){
@@ -456,7 +471,7 @@ public class DrgPluginManager {
       toast(DrgLang.get("bg_sel_err"));
     }
   }
-  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;ensureBgCache();refreshEffectiveCache();try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final int minW=AndroidUtilities.dp(242);if(vg.getMinimumWidth()<minW){vg.setMinimumWidth(minW);vg.requestLayout();}if(vg.getParent() instanceof View){View pv=(View)vg.getParent();if(pv.getMinimumWidth()<minW){pv.setMinimumWidth(minW);pv.requestLayout();}}if(addAccItem.getMinimumWidth()<minW)addAccItem.setMinimumWidth(minW);final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=getRowAccountId(row,accIds.get(i));if(row.getMinimumWidth()<minW)row.setMinimumWidth(minW);if(row.getLayoutParams()!=null&&row.getLayoutParams().width!=ViewGroup.LayoutParams.MATCH_PARENT){row.getLayoutParams().width=ViewGroup.LayoutParams.MATCH_PARENT;row.requestLayout();}if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{ensureBgCache();int sel=UserConfig.selectedAccount;if(accId==sel){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showSelectedAccountErrDialog(v.getContext());return;}boolean curPinned=bgPrefCache[accId];if(!curPinned){if(getTotalActiveCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}bgPrefCache[accId]=true;gsp().edit().putBoolean("bg_acc_"+accId,true).apply();}else{bgPrefCache[accId]=false;gsp().edit().putBoolean("bg_acc_"+accId,false).apply();}refreshEffectiveCache();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);for(int k=0;k<vg.getChildCount();k++){View rc=vg.getChildAt(k);if(rc instanceof ViewGroup){View t2=((ViewGroup)rc).findViewWithTag("drg_bg_tgl");if(t2!=null)t2.invalidate();}}H.removeCallbacks(bgStartRunner);H.removeCallbacksAndMessages(BG_TOKEN);H.postDelayed(bgStartRunner,500L);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else if(rg instanceof LinearLayout){LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24));tlp.gravity=Gravity.CENTER_VERTICAL;tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){if(cv instanceof TextView){TextView ntv=(TextView)cv;ntv.setSingleLine(true);ntv.setMaxLines(1);ntv.setEllipsize(TextUtils.TruncateAt.END);}ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;int needRight=rg instanceof LinearLayout?AndroidUtilities.dp(26):AndroidUtilities.dp(74);if(mlp.rightMargin<needRight){mlp.rightMargin=needRight;cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if(!hookedAccRows.add(row))continue;row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(4)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(74)&&ev.getX()<v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
+  public static void attachAccountReorderHook(final View addAccItem,final TextView tv){if(addAccItem==null)return;ensureBgCache();refreshEffectiveCache();try{if(tv!=null){tv.setTextSize(TypedValue.COMPLEX_UNIT_DIP,14f);tv.setSingleLine(true);}}catch(Throwable ignored){}for(int delay:new int[]{50,180,420}){H.postDelayed(()->{try{ViewParent vp=addAccItem.getParent();if(!(vp instanceof ViewGroup))return;final ViewGroup vg=(ViewGroup)vp;final int minW=AndroidUtilities.dp(242);if(vg.getMinimumWidth()<minW){vg.setMinimumWidth(minW);vg.requestLayout();}if(vg.getParent() instanceof View){View pv=(View)vg.getParent();if(pv.getMinimumWidth()<minW){pv.setMinimumWidth(minW);pv.requestLayout();}}if(addAccItem.getMinimumWidth()<minW)addAccItem.setMinimumWidth(minW);final List<View> accViews=new ArrayList<>();int firstAccIdx=-1;for(int i=0;i<vg.getChildCount();i++){View ch=vg.getChildAt(i);if(ch==addAccItem)continue;if(ch instanceof ViewGroup&&ch.getVisibility()==View.VISIBLE&&ch.getHeight()>=AndroidUtilities.dp(32)){if(firstAccIdx<0)firstAccIdx=i;accViews.add(ch);}else if(Build.VERSION.SDK_INT>=23)ch.setForeground(null);}final int minIdx=firstAccIdx>=0?firstAccIdx:2;final List<Integer> accIds=getSortedActiveAccounts();for(int i=0;i<accViews.size()&&i<accIds.size();i++){final View row=accViews.get(i);final int accId=getRowAccountId(row,accIds.get(i));if(row.getMinimumWidth()<minW)row.setMinimumWidth(minW);if(row.getLayoutParams()!=null&&row.getLayoutParams().width!=ViewGroup.LayoutParams.MATCH_PARENT){row.getLayoutParams().width=ViewGroup.LayoutParams.MATCH_PARENT;row.requestLayout();}if(row instanceof ViewGroup){final ViewGroup rg=(ViewGroup)row;View oldTgl=rg.findViewWithTag("drg_bg_tgl");if(oldTgl==null){final View tgl=new View(rg.getContext());tgl.setTag("drg_bg_tgl");tgl.setClickable(true);tgl.setBackground(makeBgToggleDrawable(accId));tgl.setOnClickListener(v->{ensureBgCache();int sel=UserConfig.selectedAccount;if(accId==sel){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showSelectedAccountErrDialog(v.getContext());return;}boolean curPinned=bgPrefCache[accId];if(!curPinned){if(getTotalActiveCount()>=10){v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);showAntiFraudLimitDialog(v.getContext());return;}bgPrefCache[accId]=true;gsp().edit().putBoolean("bg_acc_"+accId,true).apply();}else{bgPrefCache[accId]=false;gsp().edit().putBoolean("bg_acc_"+accId,false).apply();}refreshEffectiveCache();if(!effectiveActiveCache[accId])pauseAccountNow(accId);v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);for(int k=0;k<vg.getChildCount();k++){View rc=vg.getChildAt(k);if(rc instanceof ViewGroup){View t2=((ViewGroup)rc).findViewWithTag("drg_bg_tgl");if(t2!=null)t2.invalidate();}}H.removeCallbacks(bgStartRunner);H.removeCallbacksAndMessages(BG_TOKEN);H.postDelayed(bgStartRunner,250L);});if(rg instanceof FrameLayout){FrameLayout.LayoutParams tlp=new FrameLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24),Gravity.RIGHT|Gravity.CENTER_VERTICAL);tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else if(rg instanceof LinearLayout){LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24));tlp.gravity=Gravity.CENTER_VERTICAL;tlp.rightMargin=AndroidUtilities.dp(8);rg.addView(tgl,tlp);}else{rg.addView(tgl,new ViewGroup.LayoutParams(AndroidUtilities.dp(40),AndroidUtilities.dp(24)));}List<View> rCh=new ArrayList<>();collectViews(rg,rCh);for(View cv:rCh){if(cv!=tgl&&(cv instanceof TextView||cv.getClass().getSimpleName().contains("SimpleTextView"))){if(cv instanceof TextView){TextView ntv=(TextView)cv;ntv.setSingleLine(true);ntv.setMaxLines(1);ntv.setEllipsize(TextUtils.TruncateAt.END);}ViewGroup.LayoutParams clp=cv.getLayoutParams();if(clp instanceof ViewGroup.MarginLayoutParams){ViewGroup.MarginLayoutParams mlp=(ViewGroup.MarginLayoutParams)clp;int needRight=rg instanceof LinearLayout?AndroidUtilities.dp(26):AndroidUtilities.dp(74);if(mlp.rightMargin<needRight){mlp.rightMargin=needRight;cv.setLayoutParams(mlp);}}}}}else{oldTgl.invalidate();}}if(!hookedAccRows.add(row))continue;row.setWillNotDraw(false);if(Build.VERSION.SDK_INT>=23)row.setForeground(makeGridForeground(row));row.invalidate();row.setOnLongClickListener(v->{v.setTag(0x7F000001,Boolean.TRUE);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;});row.setOnTouchListener(new View.OnTouchListener(){float downY=0;boolean dragging=false;@Override public boolean onTouch(View v,MotionEvent ev){int act=ev.getActionMasked();if(act==MotionEvent.ACTION_DOWN){downY=ev.getRawY();if(v instanceof ViewGroup){View tv2=((ViewGroup)v).findViewWithTag("drg_bg_tgl");if(tv2!=null&&ev.getX()>=tv2.getLeft()-AndroidUtilities.dp(4)&&ev.getX()<=tv2.getRight()+AndroidUtilities.dp(4)){dragging=false;return false;}}if(ev.getX()>=v.getWidth()-AndroidUtilities.dp(74)&&ev.getX()<v.getWidth()-AndroidUtilities.dp(48)){dragging=true;vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);v.setAlpha(0.75f);v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);return true;}dragging=false;return false;}if(!dragging&&Boolean.TRUE.equals(v.getTag(0x7F000001))){dragging=true;downY=ev.getRawY();vg.requestDisallowInterceptTouchEvent(true);if(vg.getParent()!=null)vg.getParent().requestDisallowInterceptTouchEvent(true);}if(!dragging)return false;if(act==MotionEvent.ACTION_MOVE){float dy=ev.getRawY()-downY;v.setTranslationY(dy*0.4f);int step=Math.max(AndroidUtilities.dp(36),v.getHeight()*3/4);if(Math.abs(dy)>=step){int curIdx=vg.indexOfChild(v),targetIdx=dy>0?curIdx+1:curIdx-1;if(targetIdx>=minIdx&&targetIdx<vg.getChildCount()){v.setTranslationY(0f);vg.removeViewAt(curIdx);vg.addView(v,targetIdx);downY=ev.getRawY();v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);saveNewOrderFromPopup(vg,accViews,accIds);}}return true;}else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL){v.setTranslationY(0f);v.setAlpha(1.0f);v.setTag(0x7F000001,null);dragging=false;return true;}return true;}});}}catch(Throwable ignored){}},delay);}}
   private static void saveNewOrderFromPopup(ViewGroup vg,List<View> origViews,List<Integer> origAccs){try{int baseTime=100000,rank=0;for(int i=0;i<vg.getChildCount();i++){int origIdx=origViews.indexOf(vg.getChildAt(i));if(origIdx>=0&&origIdx<origAccs.size()){int acc=origAccs.get(origIdx);UserConfig.getInstance(acc).loginTime=baseTime+(rank*100);UserConfig.getInstance(acc).saveConfig(false);rank++;}}}catch(Throwable ignored){}}
   public static CharSequence prependSvgTrashSpan(CharSequence timeStr){if(timeStr==null||(timeStr instanceof Spanned&&timeStr.toString().startsWith("  ")))return timeStr;SpannableStringBuilder ssb=new SpannableStringBuilder("  ").append(timeStr);ssb.setSpan(new ReplacementSpan(){@Override public int getSize(Paint p,CharSequence t,int s,int e,Paint.FontMetricsInt fm){return AndroidUtilities.dp(14);}@Override public void draw(Canvas c,CharSequence t,int s,int e,float x,int top,int y,int bottom,Paint p){try{Drawable d=ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.msg_delete).mutate();d.setColorFilter(new PorterDuffColorFilter(p.getColor(),PorterDuff.Mode.SRC_IN));int sz=AndroidUtilities.dp(11),dy=top+(bottom-top-sz)/2;d.setBounds((int)x,dy,(int)x+sz,dy+sz);d.draw(c);}catch(Throwable ignored){}}},0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return ssb;}
   public static GradientDrawable makeLiquidGlass(int radDp){GradientDrawable g=new GradientDrawable();g.setColor(0xE618222D);g.setCornerRadius(AndroidUtilities.dp(radDp));g.setStroke(Math.max(1,AndroidUtilities.dp(1)),0x33FFFFFF);return g;}
