@@ -151,6 +151,8 @@ for root, _, files in os.walk("."):
             t = re.sub(r'\s*android:(roundIcon|icon|name)="[^"]*"', '', mt.group(0))
             return t[:-1] + f' android:name="org.telegram.messenger.DrgIcon{i}" android:icon="@mipmap/drg_ic_{i}" android:roundIcon="@mipmap/drg_ic_{i}">'
           m = re.sub(rf"<activity-alias[^>]*{al}[^>]*>", fix_al, m, flags=re.S)
+        if "DrgCrashActivity" not in m and "</application>" in m and ("TMessagesProj" + os.sep + "src") in p:
+          m = m.replace("</application>", '<activity android:name="org.telegram.messenger.DrgCrashActivity" android:process=":drg_crash" android:exported="false" android:theme="@android:style/Theme.DeviceDefault.NoActionBar"/></application>')
         with open(p, "w", encoding="utf-8") as file: file.write(m)
       elif f == "strings.xml":
         with open(p, "r", encoding="utf-8") as file: c = file.read()
@@ -232,7 +234,7 @@ patch("ui/ActionBar/BaseFragment.java", r"(public\s+void\s+onTransitionAnimation
 patch("ui/ProxyListActivity.java", r"(return\s+fragmentView\s*;)", r"org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView); \1", 0)
 patch("ui/ProxyListActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.attachToNativeProxyList(this, fragmentView);", 0)
 patch("ui/ProxyListActivity.java", r"((?:private|public|protected)\s+void\s+checkProxyList\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgProxy.regRecheck(this, () -> checkProxyList());", 0)
-patch("messenger/ApplicationLoader.java", r"(super\.onCreate\s*\(\s*\)\s*;)", r'\1 org.telegram.messenger.DrgCrash.install(this); org.telegram.messenger.DrgCrash.stage("app_onCreate");', 1)
+patch("messenger/ApplicationLoader.java", r"(super\.onCreate\s*\(\s*\)\s*;)", r'\1 org.telegram.messenger.DrgCrash.install(this); if (org.telegram.messenger.DrgCrash.isCrashProcess(this)) return; org.telegram.messenger.DrgCrash.stage("app_onCreate");', 1)
 patch("messenger/ApplicationLoader.java", r"((?:public|private|protected)?\s*(?:static\s+)?(?:synchronized\s+)?void\s+postInitApplication\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("postInit");', 1)
 patch("messenger/ApplicationLoader.java", r"Build\.MANUFACTURER\s*\+\s*Build\.MODEL", "org.telegram.messenger.DrgPluginManager.getFakeDeviceModel(UserConfig.selectedAccount)", 0)
 patch("messenger/ApplicationLoader.java", r'"SDK\s*"\s*\+\s*Build\.VERSION\.SDK_INT', "org.telegram.messenger.DrgPluginManager.getFakeSystemVersion(UserConfig.selectedAccount)", 0)
@@ -269,7 +271,7 @@ patch("ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1
 patch("ui/ChatActivity.java", r">=\s*100\b", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
 patch("ui/ChatActivity.java", r">\s*100\b", "> (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
 patch("ui/ProfileActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.attachProfileBadge(fragmentView, currentAccount, userId);", 0)
-patch("ui/LaunchActivity.java", r"(super\.onCreate\s*\([^)]*\)\s*;)", r'\1 org.telegram.messenger.DrgCrash.stage("launch_onCreate");', 1)
+patch("ui/LaunchActivity.java", r"(super\.onCreate\s*\([^)]*\)\s*;)", r'\1 if (org.telegram.messenger.DrgCrash.checkAndShowOnLaunch(this)) { finish(); return; } org.telegram.messenger.DrgCrash.stage("launch_onCreate");', 1)
 patch("ui/LaunchActivity.java", r"((?:public|protected)\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("launch_onResume"); org.telegram.messenger.DrgPluginManager.onLaunchResume(this);', 0)
 patch("ui/LaunchActivity.java", r"((?:public|private|protected)\s+void\s+switchToAccount\s*\(\s*(?:final\s+)?int\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onSwitchAccount(\2);", 0)
 patch("ui/Components/ChatActivityEnterView.java", r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)", r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoingWithTiming(currentAccount, \3);")
