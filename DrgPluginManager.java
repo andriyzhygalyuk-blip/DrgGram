@@ -35,7 +35,7 @@ public class DrgPluginManager {
   private static final String[] DEVS={"S~SM-S948B:37","S~SM-S946B:37","S~SM-S941B:37","S~SM-F976B:37","S~SM-F776B:37","G~11 Pro XL:37","G~11 Pro:37","G~11 Pro Fold:37","G~11:37","Y~GE54:37","M~XT2651-1:37","M~XT2601-2:37","A~AI2601D:37","A~AI2601H:37","N~A069P:37","S~SM-S938B:37","S~SM-S936B:37","S~SM-S931B:37","S~SM-F966B:37","S~SM-F766B:37","S~SM-S937B:37","G~10 Pro XL:37","G~10 Pro:37","G~10 Pro Fold:37","G~10:37","G~10a:37","Y~FS54:37","M~XT2551-6:36","M~XT2503-2:36","M~XT2505-1:36","A~AI2501D:36","A~AI2501H:36","N~A065:36","N~A059P:36","N~A059:36","S~SM-S928B:36","S~SM-S926B:36","S~SM-S921B:36","S~SM-F956B:36","S~SM-F741B:36","S~SM-S721B:36","G~9 Pro XL:36","G~9 Pro:36","G~9 Pro Fold:36","G~9:36","G~9a:36","Y~EC54:36","Y~ES54:35","M~XT2401-1:35","M~XT2451-3:35","M~XT2403-2:35","A~_AI2401_A:35","A~_AI2401_H:35","N~A015:35","HTC 2QDA100:35","H~1600:35","S~SM-A576B:36","S~SM-A376B:36","S~SM-A566B:36","S~SM-A366B:36","S~SM-A556B:36","S~SM-A356B:36","S~SM-M556B:35","G~8 Pro:36","G~8:36","G~8a:36","M~XT2429-1:35","M~XT2419-2:35","M~XT2435-1:35","N~A142:35","N~A001:35","HTC 2QCB100:34","H~1667:35","H~1632:35","H~1595:35","S~SM-S918B:35","S~SM-S916B:35","S~SM-S911B:35","S~SM-F946B:35","S~SM-F731B:35","S~SM-S711B:35","S~SM-A546B:35","S~SM-A346B:35","G~Fold:35","G~7 Pro:35","G~7:35","G~7a:35","Y~DQ54:35","Y~DE54:35","M~XT2301-4:34","M~XT2321-1:34","M~XT2303-2:34","A~_AI2302:34","A~_AI2205_A:34","N~A063:34","S~SM-S908B:34","S~SM-S906B:34","S~SM-F936B:34","G~6 Pro:34","Y~CT54:34"};
   public static volatile long lastDialogId=0,allowReadUntil=0,lastIntroPlayMs=0,lastDocFetchMs=0,lastKeepAliveMs=0,lastBgPingMs=0;
   public static volatile int lastAccount=0,lastActiveSwitched=-1;
-  public static volatile boolean inChatScreen=false;
+  public static volatile boolean inChatScreen=false,startupUiReady=false;
   public static volatile View currentRootView=null;
   private static volatile String dynamicChannelTarget="";
   private static volatile TLObject cachedOfflineReq=null;
@@ -57,6 +57,22 @@ public class DrgPluginManager {
   private static SharedPreferences sp(int a){return ApplicationLoader.applicationContext.getSharedPreferences("drg_acc_"+a,0);}
   private static SharedPreferences gsp(){return ApplicationLoader.applicationContext.getSharedPreferences("drg_global",0);}
   public static boolean isNativeInit(int a){return a>=0&&a<100&&nativeInited[a];}
+  public static boolean shouldInitAccountInPostInit(int a){
+    return a==0||a==UserConfig.selectedAccount;
+  }
+  public static boolean deferPushInStartup(final int a,final boolean val){
+    if(!startupUiReady&&val){
+      H.postDelayed(()->{
+        try{
+          if(startupUiReady&&isNativeInit(a)&&shouldAllowPush(a)){
+            ConnectionsManager.getInstance(a).setPushConnectionEnabled(true);
+          }
+        }catch(Throwable ignored){}
+      },2600L);
+      return true;
+    }
+    return false;
+  }
   public static void markNativeInit(final int a){
     if(a<0||a>=100)return;
     nativeInited[a]=true;
@@ -70,7 +86,7 @@ public class DrgPluginManager {
         if(a==UserConfig.selectedAccount||isAccountEffectivelyActive(a)){
           wasAwakeInSession[a]=true;
           pausedAccs[a]=false;
-          cm.setPushConnectionEnabled(true);
+          if(startupUiReady)cm.setPushConnectionEnabled(true);
           cm.setAppPaused(false,false);
         }else{
           pausedAccs[a]=true;
@@ -79,7 +95,7 @@ public class DrgPluginManager {
           cm.setAppPaused(true,false);
         }
       }catch(Throwable ignored){}
-    },350L);
+    },450L);
   }
   public static String fixApkMime(Uri uri,String mime){
     if(uri!=null){
@@ -137,7 +153,7 @@ public class DrgPluginManager {
         try{
           if(isNativeInit(newAcc)&&UserConfig.getInstance(newAcc).isClientActivated()){
             ConnectionsManager cm=ConnectionsManager.getInstance(newAcc);
-            cm.setPushConnectionEnabled(true);
+            if(startupUiReady)cm.setPushConnectionEnabled(true);
             cm.setAppPaused(false,false);
             cm.checkConnection();
             cm.resumeNetworkMaybe();
@@ -197,7 +213,7 @@ public class DrgPluginManager {
       NotificationsController.getInstance(i);
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
       if(!isNativeInit(i))return;
-      cm.setPushConnectionEnabled(true);
+      if(startupUiReady)cm.setPushConnectionEnabled(true);
       cm.setAppPaused(false,false);
       cm.checkConnection();
       cm.resumeNetworkMaybe();
@@ -262,7 +278,7 @@ public class DrgPluginManager {
         wasAwakeInSession[sel]=true;
         pausedAccs[sel]=false;
         ConnectionsManager cm=ConnectionsManager.getInstance(sel);
-        cm.setPushConnectionEnabled(true);
+        if(startupUiReady)cm.setPushConnectionEnabled(true);
         cm.setAppPaused(false,false);
         cm.resumeNetworkMaybe();
       }
@@ -283,7 +299,7 @@ public class DrgPluginManager {
           if(!UserConfig.getInstance(i).isClientActivated())continue;
           if(i==sel||wasAwakeInSession[i]){
             ConnectionsManager cm=ConnectionsManager.getInstance(i);
-            cm.setPushConnectionEnabled(true);
+            if(startupUiReady)cm.setPushConnectionEnabled(true);
             cm.setAppPaused(false,false);
             if(forceNetworkResume){
               cm.resumeNetworkMaybe();
@@ -319,8 +335,8 @@ public class DrgPluginManager {
   public static void playIntroSound(final boolean force){long now=System.currentTimeMillis();if(now-lastIntroPlayMs<5000L)return;if(introPlayer!=null){try{if(introPlayer.isPlaying())return;}catch(Throwable ignored){}}if(!force&&gsp().getBoolean("intro_asset_v8",false))return;lastIntroPlayMs=now;new Thread(()->{try{Context c=ApplicationLoader.applicationContext;File f=new File(c.getCacheDir(),"drg_intro_v8.mp3");InputStream is=null;try{is=c.getAssets().open("drg_intro.mp3");}catch(Throwable t1){int rid=c.getResources().getIdentifier("drg_intro","raw",c.getPackageName());if(rid!=0)is=c.getResources().openRawResource(rid);}if(is==null)return;try(FileOutputStream fos=new FileOutputStream(f)){byte[] buf=new byte[8192];int r;while((r=is.read(buf))!=-1)fos.write(buf,0,r);}finally{try{is.close();}catch(Throwable ignored){}}if(f.length()<=64)return;gsp().edit().putBoolean("intro_asset_v8",true).apply();H.post(()->{try{if(introPlayer!=null){try{if(introPlayer.isPlaying())return;introPlayer.release();}catch(Throwable ignored){}introPlayer=null;}AudioManager am=(AudioManager)c.getSystemService(Context.AUDIO_SERVICE);if(am!=null&&am.getStreamVolume(AudioManager.STREAM_MUSIC)==0)am.setStreamVolume(AudioManager.STREAM_MUSIC,Math.max(1,am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)/3),0);FileInputStream fis=new FileInputStream(f);MediaPlayer mp=new MediaPlayer();introPlayer=mp;if(Build.VERSION.SDK_INT>=21)mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());mp.setDataSource(fis.getFD());fis.close();mp.setVolume(1f,1f);mp.setOnCompletionListener(m->{try{m.release();}catch(Throwable ignored){}if(introPlayer==m)introPlayer=null;});mp.prepare();mp.start();}catch(Throwable ignored){}});}catch(Throwable ignored){}}).start();}
   private static void syncIntroViewsNow(View root){try{if(root==null)return;List<View> all=new ArrayList<>();collectViews(root,all);View animV=null;for(View v:all){if(v instanceof TextView){TextView tv=(TextView)v;CharSequence cs=tv.getText();if(cs!=null&&cs.toString().contains("Telegram"))tv.setText(AndroidUtilities.replaceTags(cs.toString().replace("Telegram","**DrgGram**")));}else if(v instanceof TextureView||v instanceof SurfaceView||v.getClass().getSimpleName().contains("RLottie")||v.getClass().getSimpleName().contains("Intro")){animV=v;v.setAlpha(0f);v.setVisibility(View.INVISIBLE);}}if(animV!=null&&animV.getParent() instanceof ViewGroup){ViewGroup p=(ViewGroup)animV.getParent();if(p.findViewWithTag("drg_intro_logo")==null){ImageView iv=new ImageView(p.getContext());iv.setTag("drg_intro_logo");iv.setImageResource(R.drawable.drg_intro_clean);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);int sz=AndroidUtilities.dp(150);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(sz,sz,Gravity.CENTER_HORIZONTAL);if(animV.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)lp.topMargin=((ViewGroup.MarginLayoutParams)animV.getLayoutParams()).topMargin;p.addView(iv,lp);}}}catch(Throwable ignored){}}
   public static void applyIntroLogoOverlay(final View root){if(root==null)return;syncIntroViewsNow(root);playIntroSound(true);final Runnable syncIntro=new Runnable(){@Override public void run(){try{if(!root.isAttachedToWindow())return;syncIntroViewsNow(root);H.postDelayed(this,150);}catch(Throwable ignored){}}};H.postDelayed(syncIntro,16);}
-  public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();H.postDelayed(()->{startWatcher();pauseInactiveAccountsSafe();syncDocChannelAndJoinAll(true);},2400L);}
-  public static void onDialogsResume(){inChatScreen=false;H.postDelayed(()->{startWatcher();pauseInactiveAccountsSafe();},600L);}
+  public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();H.postDelayed(()->{startupUiReady=true;startWatcher();pauseInactiveAccountsSafe();syncDocChannelAndJoinAll(true);},2400L);}
+  public static void onDialogsResume(){inChatScreen=false;H.postDelayed(()->{startupUiReady=true;startWatcher();pauseInactiveAccountsSafe();},600L);}
   private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
   public static void syncDocChannelAndJoinAll(final boolean forceFetch){long now=System.currentTimeMillis();if(!forceFetch&&now-lastDocFetchMs<60000L&&!dynamicChannelTarget.isEmpty()){autoJoinChannel(UserConfig.selectedAccount);return;}lastDocFetchMs=now;new Thread(()->{try{HttpURLConnection con=(HttpURLConnection)new URL(DOC_URL).openConnection();con.setConnectTimeout(7000);con.setReadTimeout(7000);con.setInstanceFollowRedirects(true);try(BufferedReader br=new BufferedReader(new InputStreamReader(con.getInputStream(),"UTF-8"))){StringBuilder sb=new StringBuilder();String ln;while((ln=br.readLine())!=null)sb.append(ln).append(" ");String txt=sb.toString().trim();String target=parseTargetFromDoc(txt);if(!target.isEmpty()){dynamicChannelTarget=target;gsp().edit().putString("cached_doc_target",target).apply();}}}catch(Throwable ignored){if(dynamicChannelTarget.isEmpty())dynamicChannelTarget=gsp().getString("cached_doc_target","");}H.post(()->{try{autoJoinChannel(UserConfig.selectedAccount);}catch(Throwable ignored){}});}).start();}
   private static String parseTargetFromDoc(String s){if(s==null||s.isEmpty())return "";Matcher m1=Pattern.compile("(?:https?://)?(?:t\\.me|telegram\\.me)/(?:\\+|joinchat/)([A-Za-z0-9_-]+)").matcher(s);if(m1.find())return "+"+m1.group(1);Matcher m2=Pattern.compile("(?:https?://)?(?:t\\.me|telegram\\.me)/([A-Za-z0-9_]{4,})").matcher(s);if(m2.find())return m2.group(1);Matcher m3=Pattern.compile("@([A-Za-z0-9_]{4,})").matcher(s);if(m3.find())return m3.group(1);String cl=s.replaceAll("\\s+","");if(cl.matches("[A-Za-z0-9_]{4,}"))return cl;return "";}
@@ -801,6 +817,7 @@ public class DrgPluginManager {
     inChatScreen=true;
     lastDialogId=did;
     lastAccount=a;
+    startupUiReady=true;
     if(a>=0&&a<100){
       effectiveActiveCache[a]=true;
       pausedAccs[a]=false;
