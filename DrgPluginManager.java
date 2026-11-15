@@ -76,15 +76,6 @@ public class DrgPluginManager {
   public static void markNativeInit(final int a){
     if(a<0||a>=100)return;
     nativeInited[a]=true;
-    try{
-      if(ApplicationLoader.applicationContext!=null){
-        ensureBgCache();
-        refreshEffectiveCache();
-        if(a!=UserConfig.selectedAccount&&!isAccountEffectivelyActive(a)){
-          pauseAccountNow(a);
-        }
-      }
-    }catch(Throwable ignored){}
     H.postDelayed(()->{
       try{
         if(ApplicationLoader.applicationContext==null)return;
@@ -101,7 +92,7 @@ public class DrgPluginManager {
           pauseAccountNow(a);
         }
       }catch(Throwable ignored){}
-    },450L);
+    },50L);
   }
   public static String fixApkMime(Uri uri,String mime){
     if(uri!=null){
