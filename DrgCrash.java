@@ -224,7 +224,7 @@ public class DrgCrash {
       while ((r = is.read(buf)) != -1) {
         baos.write(buf, 0, r);
         total += r;
-        if (total >= 524288) break;
+        if (total >= 1572864) break;
       }
       is.close();
       byte[] data = baos.toByteArray();
@@ -256,7 +256,7 @@ public class DrgCrash {
       }
 
       StringBuilder out = new StringBuilder();
-      out.append("  [Active / Crashing Threads from Tombstone]\n");
+      out.append("  [Active / Crashing Threads from Tombstone, bytes=").append(data.length).append(", threads=").append(x0Idxs.size()).append("]\n");
       int headerEnd = x0Idxs.isEmpty() ? Math.min(tokens.size(), 25) : Math.max(0, x0Idxs.get(0) - 1);
       for (int i = 0; i < headerEnd && i < 30; i++) {
         String h = cleanToken(tokens.get(i));
@@ -271,7 +271,7 @@ public class DrgCrash {
         String threadName = (start > 0) ? tokens.get(start - 1) : ("thread_" + k);
 
         int pstIdx = start;
-        for (int j = start; j < Math.min(end, start + 45); j++) {
+        for (int j = start; j < Math.min(end, start + 50); j++) {
           String tj = tokens.get(j);
           if (tj.equals("pst") || tj.startsWith("pst ")) {
             pstIdx = j + 1;
@@ -285,25 +285,37 @@ public class DrgCrash {
           if (ft != null) frames.add(ft);
         }
 
-        String firstFrame = frames.isEmpty() ? "" : frames.get(0);
-        boolean isIdle = firstFrame.contains("__epoll_pwait")
-          || firstFrame.contains("syscall")
-          || firstFrame.contains("nanosleep")
-          || firstFrame.contains("__futex")
-          || firstFrame.contains("sched_yield");
+        boolean isIdle = false;
+        int chkLim = Math.min(frames.size(), 6);
+        for (int f = 0; f < chkLim; f++) {
+          String fr = frames.get(f);
+          if (fr.contains("__epoll_pwait")
+              || fr.contains("syscall(")
+              || fr.contains("__ppoll(")
+              || fr.contains("nanosleep")
+              || fr.contains("__futex")
+              || fr.contains("sched_yield")
+              || fr.contains("Unsafe_park")
+              || fr.contains("Thread.sleep0")
+              || fr.contains("ConditionVariable::TimedWait")
+              || fr.contains("epoll_wait")) {
+            isIdle = true;
+            break;
+          }
+        }
 
-        if (isIdle && k > 0) {
+        if (isIdle) {
           skippedIdle++;
           continue;
         }
 
         activeShown++;
-        out.append("  === THREAD: ").append(threadName).append(isIdle ? " (idle)" : " (ACTIVE/CRASH!)").append(" ===\n");
-        int lim = Math.min(frames.size(), 30);
+        out.append("  === THREAD: ").append(threadName).append(" (ACTIVE/CRASH!) ===\n");
+        int lim = Math.min(frames.size(), 45);
         for (int f = 0; f < lim; f++) {
           out.append("    ").append(frames.get(f)).append("\n");
         }
-        if (activeShown >= 10) break;
+        if (activeShown >= 12) break;
       }
       out.append("  (skipped idle threads: ").append(skippedIdle).append(")\n");
       return out.toString();
@@ -318,6 +330,7 @@ public class DrgCrash {
     if (t.equals("x0") || t.equals("pst") || t.equals("lr") || t.equals("sp") || t.equals("pc")) return null;
     if (t.matches("x[0-9]{1,2}")) return null;
     if (t.startsWith("u:r:")) return null;
+    if (t.startsWith("\"") && t.length() <= 3) return null;
     int slash = t.lastIndexOf('/');
     if (slash >= 0 && slash < t.length() - 1) {
       String file = t.substring(slash + 1);
