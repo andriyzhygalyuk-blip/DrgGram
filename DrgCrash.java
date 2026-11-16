@@ -73,17 +73,20 @@ public class DrgCrash {
 
     try {
       SharedPreferences p = sp(c);
+      String curVer = appVersion(c);
+      String prevVer = p.getString("last_ver", "");
+      if (!curVer.equals(prevVer)) {
+        p.edit()
+          .putString("last_ver", curVer)
+          .remove("last_java_crash")
+          .remove("prev_incomplete_stage")
+          .commit();
+      }
+
       String prevStage = p.getString("stage", "");
       long prevTs = p.getLong("stage_ts", 0L);
       if (!prevStage.isEmpty() && !"dialogs_onResume".equals(prevStage) && !"ready".equals(prevStage)) {
         p.edit().putString("prev_incomplete_stage", prevStage).putLong("prev_incomplete_ts", prevTs).commit();
-        if ("app_onCreate".equals(prevStage) || "postInit".equals(prevStage)) {
-          String earlyReport = collectAbnormalExitReport(c, false);
-          if (earlyReport != null) {
-            p.edit().putString("last_saved_report", earlyReport).commit();
-            saveTextAsyncJoin(c, earlyReport, 900L);
-          }
-        }
       }
 
       final Thread.UncaughtExceptionHandler prevHandler = Thread.getDefaultUncaughtExceptionHandler();
@@ -171,7 +174,7 @@ public class DrgCrash {
                 long ts = info.getTimestamp();
                 if (i == 0 && ts > newestTs) newestTs = ts;
                 int r = info.getReason();
-                if (i == 0 && ts > lastHandledTs && isAbnormalReason(r, incStage)) {
+                if (i == 0 && ts > lastHandledTs && isAbnormalReason(r)) {
                   hasCrash = true;
                 }
                 exitSb.append("#").append(i + 1)
@@ -184,7 +187,7 @@ public class DrgCrash {
                 if (info.getDescription() != null && !info.getDescription().isEmpty()) {
                   exitSb.append("  desc: ").append(info.getDescription()).append("\n");
                 }
-                if (!tracedFirstNative && i < 3) {
+                if (!tracedFirstNative && i == 0 && isAbnormalReason(r)) {
                   String trace = parseTombstoneProto(info.getTraceInputStream());
                   if (!trace.isEmpty()) {
                     tracedFirstNative = true;
@@ -199,7 +202,12 @@ public class DrgCrash {
         }
       }
 
-      if (!hasCrash) return null;
+      if (!hasCrash) {
+        if (markHandled && newestTs > lastHandledTs) {
+          p.edit().putLong("last_handled_exit_ts", newestTs).remove("prev_incomplete_stage").apply();
+        }
+        return null;
+      }
 
       String report = buildFullReport(c, javaCrash, incStage, incTs, exitSb.toString());
       if (markHandled) {
@@ -278,7 +286,6 @@ public class DrgCrash {
       String sigInfo = "", abortMsg = "";
       StringBuilder causes = new StringBuilder();
 
-      // Pass 1: header & crashTid
       PbReader r1 = new PbReader(data, 0, data.length);
       while (r1.hasNext()) {
         int tag = (int) r1.readVarint();
@@ -314,11 +321,9 @@ public class DrgCrash {
       if (causes.length() > 0) out.append("  CAUSE: ").append(causes).append("\n");
       if (!abortMsg.isEmpty()) out.append("  ABORT: ").append(abortMsg).append("\n");
 
-      // Pass 2: locate exact crashing thread + main thread + any active libtmessages threads
       String crashThreadText = "";
       String mainThreadText = "";
-      StringBuilder activeLibThreads = new StringBuilder();
-      int totalThreads = 0, activeExtra = 0;
+      int totalThreads = 0;
 
       PbReader r2 = new PbReader(data, 0, data.length);
       while (r2.hasNext()) {
@@ -350,7 +355,6 @@ public class DrgCrash {
             if (thStart >= 0) {
               String[] parsed = parseThread(data, thStart, thEnd, mapKey);
               String tName = parsed[0];
-              String tTop = parsed[1];
               String tBody = parsed[2];
               boolean isCrash = (crashTid >= 0 && mapKey == crashTid);
               boolean isMain = tName.contains("drggram") || tName.equals("main");
@@ -358,9 +362,6 @@ public class DrgCrash {
                 crashThreadText = "  >>> CRASHING THREAD: " + tName + " (tid=" + mapKey + ") <<<\n" + tBody;
               } else if (isMain) {
                 mainThreadText = "  [MAIN THREAD: " + tName + " tid=" + mapKey + "]\n" + tBody;
-              } else if (!isIdleFrame(tTop) && (tBody.contains("libtmessages") || tBody.contains("org.telegram")) && activeExtra < 4) {
-                activeExtra++;
-                activeLibThreads.append("  [ACTIVE THREAD: ").append(tName).append(" tid=").append(mapKey).append("]\n").append(tBody);
               }
             }
             r2.pos = endEntry;
@@ -372,20 +373,11 @@ public class DrgCrash {
 
       out.append("  Total threads in dump: ").append(totalThreads).append("\n");
       if (!crashThreadText.isEmpty()) out.append(crashThreadText);
-      else out.append("  (crashTid thread not found in map)\n");
       if (!mainThreadText.isEmpty()) out.append(mainThreadText);
-      if (activeLibThreads.length() > 0) out.append(activeLibThreads);
       return out.toString();
     } catch (Throwable t) {
       return "  tombstone parse err: " + t.toString() + "\n";
     }
-  }
-
-  private static boolean isIdleFrame(String f) {
-    if (f == null || f.isEmpty()) return true;
-    return f.contains("__epoll_pwait") || f.contains("syscall") || f.contains("__ioctl")
-      || f.contains("__rt_sigtimedwait") || f.contains("nanosleep") || f.contains("__futex")
-      || f.contains("IoBridge.read") || f.contains("BlockGuardOs.read") || f.equals("read");
   }
 
   private static String parseSignal(byte[] d, int s, int e) {
@@ -478,10 +470,8 @@ public class DrgCrash {
     return sb.toString();
   }
 
-  private static boolean isAbnormalReason(int r, String incStage) {
-    if (r == 2 || r == 3 || r == 4 || r == 5 || r == 6 || r == 7 || r == 9) return true;
-    if (r == 13 && incStage != null && !incStage.isEmpty() && !"dialogs_onResume".equals(incStage)) return true;
-    return false;
+  private static boolean isAbnormalReason(int r) {
+    return r == 4 || r == 5 || r == 6 || r == 7;
   }
 
   private static String buildFullReport(Context c, String javaCrash, String incStage, long incTs, String exitInfoText) {
