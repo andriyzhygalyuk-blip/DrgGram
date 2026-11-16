@@ -45,8 +45,9 @@ public class DrgPluginManager {
   private static volatile boolean bgCacheReady=false;
   private static final boolean[] nativeInited=new boolean[100],obsAccounts=new boolean[100],pausedAccs=new boolean[100],wasAwakeInSession=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
   private static int bgQueueCursor=0;
-  @SuppressWarnings("unchecked") private static final Set<String>[] watchedCache=new Set[100],delIdsCache=new Set[100];
+  @SuppressWarnings("unchecked") private static final Set<String>[] watchedCache=new Set[100],delIdsCache=new Set[100],antiDelWatchedCache=new Set[100];
   private static final Map<String,String> msgMemCache=new ConcurrentHashMap<>();
+  private static final Map<String,Long> msgDidMap=new ConcurrentHashMap<>();
   private static final Map<String,Boolean> onlineMap=new ConcurrentHashMap<>();
   private static final Map<String,Long> onlineSince=new ConcurrentHashMap<>();
   private static final Set<Integer> mutedHandled=Collections.synchronizedSet(new HashSet<>());
@@ -475,7 +476,100 @@ public class DrgPluginManager {
   public static void toast(final String m){H.post(()->{try{Toast.makeText(ApplicationLoader.applicationContext,m,Toast.LENGTH_SHORT).show();}catch(Throwable ignored){}});}
   private static String now(){return new SimpleDateFormat("dd.MM.yyyy HH:mm:ss",Locale.getDefault()).format(new Date());}
   public static synchronized void log(int a,String e){try{String o=sp(a).getString("log",""),u="["+now()+"] "+e+"\n"+o;if(u.length()>25000)u=u.substring(0,25000);sp(a).edit().putString("log",u).apply();}catch(Throwable ignored){}}
-  public static boolean isAntiDelete(int a){return sp(a).getBoolean("anti_del",false);}
+
+  public static Set<String> antiDelWatched(int a){
+    if(a<0||a>=100)return Collections.emptySet();
+    Set<String> s=antiDelWatchedCache[a];
+    if(s==null){
+      try{s=Collections.synchronizedSet(new HashSet<>(sp(a).getStringSet("anti_del_watched",Collections.emptySet())));}
+      catch(Throwable t){s=Collections.synchronizedSet(new HashSet<>());}
+      antiDelWatchedCache[a]=s;
+    }
+    return s;
+  }
+  public static boolean isAntiDelWatched(int a,long did){return did!=0&&antiDelWatched(a).contains(String.valueOf(did));}
+  public static boolean isAntiDelete(int a){return !antiDelWatched(a).isEmpty();}
+  public static void toggleAntiDelWatch(int a,long did){
+    if(did==0)return;
+    Set<String> s=new HashSet<>(antiDelWatched(a));
+    String k=String.valueOf(did);
+    String title=antiDelDialogTitle(a,did);
+    if(s.contains(k)){
+      s.remove(k);
+      antiDelWatchedCache[a]=Collections.synchronizedSet(s);
+      sp(a).edit().putStringSet("anti_del_watched",s).apply();
+      toast(title+tr(" — анти-видалення вимкнено"," — анти-удаление выключено"," — anti-delete disabled"));
+    }else{
+      s.add(k);
+      antiDelWatchedCache[a]=Collections.synchronizedSet(s);
+      sp(a).edit().putStringSet("anti_del_watched",s).putString("adname_"+did,title).apply();
+      toast(title+tr(" — додано в анти-видалення"," — добавлен в анти-удаление"," — added to anti-delete"));
+    }
+  }
+  private static String antiDelDialogTitle(int a,long did){
+    try{
+      MessagesController mc=MessagesController.getInstance(a);
+      if(did>0){
+        TLRPC.User u=mc.getUser(did);
+        if(u!=null)return radarUserTitle(a,u,did);
+      }else if(did<0){
+        TLRPC.Chat c=mc.getChat(Math.abs(did));
+        if(c!=null&&c.title!=null&&!c.title.isEmpty())return c.title;
+      }
+    }catch(Throwable ignored){}
+    return sp(a).getString("adname_"+did,did<0?("Chat "+Math.abs(did)):("ID "+did));
+  }
+  private static List<Long> collectAntiDelDialogIds(int a,long currentDid){
+    List<Long> ids=new ArrayList<>();
+    long me=0;
+    try{me=UserConfig.getInstance(a).getClientUserId();}catch(Throwable ignored){}
+    MessagesController mc=MessagesController.getInstance(a);
+    if(currentDid!=0&&currentDid!=me&&currentDid!=777000){
+      ids.add(currentDid);
+    }
+    for(String ws:new ArrayList<>(antiDelWatched(a))){
+      try{
+        long wId=Long.parseLong(ws);
+        if(wId!=0&&wId!=me&&wId!=777000&&!ids.contains(wId))ids.add(wId);
+      }catch(Throwable ignored){}
+    }
+    ArrayList<TLRPC.Dialog> dls=mc.allDialogs;
+    if(dls!=null){
+      for(TLRPC.Dialog d:dls){
+        if(d==null||d.id==0||d.id==me||d.id==777000||ids.contains(d.id))continue;
+        if(d.id>0){
+          TLRPC.User u=mc.getUser(d.id);
+          if(u!=null&&!u.self&&!u.deleted){
+            ids.add(d.id);
+            if(ids.size()>=70)break;
+          }
+        }else{
+          TLRPC.Chat c=mc.getChat(Math.abs(d.id));
+          if(c!=null&&c.title!=null&&!c.title.isEmpty()){
+            ids.add(d.id);
+            if(ids.size()>=70)break;
+          }
+        }
+      }
+    }
+    if(ids.size()<70){
+      try{
+        ArrayList<TLRPC.TL_contact> contacts=ContactsController.getInstance(a).contacts;
+        if(contacts!=null){
+          for(TLRPC.TL_contact c:contacts){
+            if(c==null||c.user_id<=0||c.user_id==me||ids.contains(c.user_id))continue;
+            TLRPC.User u=mc.getUser(c.user_id);
+            if(u!=null&&!u.self&&!u.deleted){
+              ids.add(c.user_id);
+              if(ids.size()>=70)break;
+            }
+          }
+        }
+      }catch(Throwable ignored){}
+    }
+    return ids;
+  }
+
   public static boolean isUnlimitedSelect(int a){return sp(a).getBoolean("unlim_sel",true);}
   public static boolean isVoiceTiming(int a){return sp(a).getBoolean("voice_time",false);}
   public static int getVoiceMode(int a){return sp(a).getInt("voice_mode",0);}
@@ -619,9 +713,29 @@ public class DrgPluginManager {
     return did<0?("Chat "+Math.abs(did)):("ID "+senderUid);
   }
 
+  private static long getKnownMsgDid(int a,int mid){
+    if(mid<=0)return 0L;
+    String mk=a+"_"+mid;
+    Long d=msgDidMap.get(mk);
+    if(d!=null)return d;
+    long spDid=sp(a).getLong("mdid_"+mid,0L);
+    if(spDid!=0L)msgDidMap.put(mk,spDid);
+    return spDid;
+  }
+
   private static void saveMsgCacheKeyed(int a,long did,long channelId,int mid,long senderUid,String text){
-    if(mid<=0||text==null||text.isEmpty())return;
+    if(mid<=0||did==0)return;
+    if(!isAntiDelWatched(a,did))return;
+    if(text==null||text.isEmpty())return;
     try{
+      if(channelId==0){
+        String mk=a+"_"+mid;
+        if(!msgDidMap.containsKey(mk)){
+          msgDidMap.put(mk,did);
+          if(msgDidMap.size()>4000)msgDidMap.clear();
+          sp(a).edit().putLong("mdid_"+mid,did).apply();
+        }
+      }
       String key=(channelId!=0)?("mc_"+(-Math.abs(channelId))+"_"+mid):("mc_"+mid);
       String memK=a+"_"+key;
       if(msgMemCache.containsKey(memK))return;
@@ -646,19 +760,21 @@ public class DrgPluginManager {
       if(mo.messageOwner.peer_id!=null&&mo.messageOwner.peer_id.channel_id!=0){
         channelId=mo.messageOwner.peer_id.channel_id;
       }
-      long senderUid=0;
-      if(mo.isOut()){
-        senderUid=UserConfig.getInstance(a).getClientUserId();
-      }else if(mo.messageOwner.from_id!=null&&mo.messageOwner.from_id.user_id>0){
-        senderUid=mo.messageOwner.from_id.user_id;
-      }else if(did>0){
-        senderUid=did;
-      }
-      String txt=mo.messageOwner.message;
-      if((txt==null||txt.isEmpty())&&mo.messageText!=null)txt=mo.messageText.toString();
-      if(txt==null||txt.isEmpty())txt=describeMediaText(mo.messageOwner);
-      if(mid>0&&txt!=null&&!txt.isEmpty()){
-        saveMsgCacheKeyed(a,did,channelId,mid,senderUid,txt);
+      if(isAntiDelWatched(a,did)){
+        long senderUid=0;
+        if(mo.isOut()){
+          senderUid=UserConfig.getInstance(a).getClientUserId();
+        }else if(mo.messageOwner.from_id!=null&&mo.messageOwner.from_id.user_id>0){
+          senderUid=mo.messageOwner.from_id.user_id;
+        }else if(did>0){
+          senderUid=did;
+        }
+        String txt=mo.messageOwner.message;
+        if((txt==null||txt.isEmpty())&&mo.messageText!=null)txt=mo.messageText.toString();
+        if(txt==null||txt.isEmpty())txt=describeMediaText(mo.messageOwner);
+        if(mid>0&&txt!=null&&!txt.isEmpty()){
+          saveMsgCacheKeyed(a,did,channelId,mid,senderUid,txt);
+        }
       }
       if(did>0&&!mo.isOut()&&isMutedPm(a,did)&&mid>0&&!mutedHandled.contains(mid)){
         mutedHandled.add(mid);
@@ -705,10 +821,8 @@ public class DrgPluginManager {
         String cacheKey=(did<0)?("mc_"+did+"_"+id):("mc_"+id);
         String cached=msgMemCache.get(a+"_"+cacheKey);
         if(cached==null)cached=sp(a).getString(cacheKey,null);
-        if(cached==null&&did<0){
-          cached=formatPeerTitle(a,did,0L)+" (ID "+id+")";
-        }else if(cached==null&&lastDialogId!=0&&a==UserConfig.selectedAccount){
-          cached=formatPeerTitle(a,lastDialogId,lastDialogId>0?lastDialogId:0L)+" (ID "+id+")";
+        if(cached==null&&did!=0){
+          cached=formatPeerTitle(a,did,did>0?did:0L)+" (ID "+id+")";
         }
         if(cached!=null){
           String full=accountPrefix(a)+cached;
@@ -796,10 +910,12 @@ public class DrgPluginManager {
               if(m.peer_id!=null){
                 long cid=m.peer_id.channel_id;
                 long did=cid!=0?-Math.abs(cid):(m.peer_id.chat_id!=0?-Math.abs(m.peer_id.chat_id):m.peer_id.user_id);
-                long senderUid=m.out?UserConfig.getInstance(a).getClientUserId():((m.from_id!=null&&m.from_id.user_id>0)?m.from_id.user_id:(did>0?did:0L));
-                String txt=describeMediaText(m);
-                if(did!=0&&m.id>0&&txt!=null&&!txt.isEmpty()){
-                  saveMsgCacheKeyed(a,did,cid,m.id,senderUid,txt);
+                if(did!=0&&m.id>0&&isAntiDelWatched(a,did)){
+                  long senderUid=m.out?UserConfig.getInstance(a).getClientUserId():((m.from_id!=null&&m.from_id.user_id>0)?m.from_id.user_id:(did>0?did:0L));
+                  String txt=describeMediaText(m);
+                  if(txt!=null&&!txt.isEmpty()){
+                    saveMsgCacheKeyed(a,did,cid,m.id,senderUid,txt);
+                  }
                 }
                 if(!cn.contains("Channel")&&m.peer_id.user_id>0&&m.peer_id.chat_id==0&&cid==0&&!m.out&&isMutedPm(a,m.peer_id.user_id)){
                   long uid=m.peer_id.user_id;
@@ -825,18 +941,41 @@ public class DrgPluginManager {
               checkOnline(a,usr);
             }catch(Throwable ignored){}
           }
-        }else if((cn.contains("updateDeleteMessages")||cn.contains("updateDeleteChannelMessages"))&&isAntiDelete(a)){
+        }else if(cn.contains("updateDeleteChannelMessages")){
           try{
             long did=0L;
-            if(cn.contains("Channel")){
-              try{
-                Object chObj=u.getClass().getField("channel_id").get(u);
-                if(chObj instanceof Number)did=-Math.abs(((Number)chObj).longValue());
-              }catch(Throwable ignored){}
+            try{
+              Object chObj=u.getClass().getField("channel_id").get(u);
+              if(chObj instanceof Number)did=-Math.abs(((Number)chObj).longValue());
+            }catch(Throwable ignored){}
+            if(did!=0L&&isAntiDelWatched(a,did)){
+              ArrayList<Integer> msgs=(ArrayList<Integer>)u.getClass().getField("messages").get(u);
+              markDeleted(a,did,msgs);
+              it.remove();
             }
+          }catch(Throwable ignored){}
+        }else if(cn.contains("updateDeleteMessages")&&!antiDelWatched(a).isEmpty()){
+          try{
             ArrayList<Integer> msgs=(ArrayList<Integer>)u.getClass().getField("messages").get(u);
-            markDeleted(a,did,msgs);
-            it.remove();
+            if(msgs!=null&&!msgs.isEmpty()){
+              Map<Long,ArrayList<Integer>> matched=new LinkedHashMap<>();
+              Iterator<Integer> mit=msgs.iterator();
+              while(mit.hasNext()){
+                Integer midObj=mit.next();
+                if(midObj==null||midObj<=0)continue;
+                long kDid=getKnownMsgDid(a,midObj);
+                if(kDid!=0L&&isAntiDelWatched(a,kDid)){
+                  ArrayList<Integer> lst=matched.get(kDid);
+                  if(lst==null){lst=new ArrayList<>();matched.put(kDid,lst);}
+                  lst.add(midObj);
+                  mit.remove();
+                }
+              }
+              for(Map.Entry<Long,ArrayList<Integer>> en:matched.entrySet()){
+                markDeleted(a,en.getKey(),en.getValue());
+              }
+              if(msgs.isEmpty())it.remove();
+            }
           }catch(Throwable ignored){}
         }
       }
@@ -950,6 +1089,31 @@ public class DrgPluginManager {
     }catch(Throwable ignored){}
   }
 
+  private static BackupImageView makeDialogAvatar(Context ctx,int a,long id,String fallbackTitle){
+    BackupImageView av=new BackupImageView(ctx);
+    av.setRoundRadius(AndroidUtilities.dp(14));
+    AvatarDrawable ad=new AvatarDrawable();
+    MessagesController mc=MessagesController.getInstance(a);
+    if(id>0){
+      TLRPC.User u=mc.getUser(id);
+      if(u!=null){
+        try{ad.setInfo(a,u);}catch(Throwable t1){try{ad.setInfo(u);}catch(Throwable ignored){}}
+        try{av.setForUserOrChat(u,ad);}catch(Throwable t2){av.setImageDrawable(ad);}
+        return av;
+      }
+    }else if(id<0){
+      TLRPC.Chat c=mc.getChat(Math.abs(id));
+      if(c!=null){
+        try{ad.setInfo(a,c);}catch(Throwable t1){try{ad.setInfo(c);}catch(Throwable ignored){}}
+        try{av.setForUserOrChat(c,ad);}catch(Throwable t2){av.setImageDrawable(ad);}
+        return av;
+      }
+    }
+    try{ad.setInfo(id,fallbackTitle,null);}catch(Throwable ignored){}
+    av.setImageDrawable(ad);
+    return av;
+  }
+
   public static void openDrgMenu(final View anchor,final View subBtn,final ActionBarPopupWindow.ActionBarPopupWindowLayout hostLayout,final ActionBarPopupWindow hostPopup){
     try{
       currentRootView=anchor.getRootView();
@@ -966,19 +1130,20 @@ public class DrgPluginManager {
       else if(hostLayout!=null){List<View> all=new ArrayList<>();collectViews(hostLayout,all);for(View v:all)if(v instanceof ActionBarMenuSubItem&&v.getParent() instanceof ViewGroup){target=(ViewGroup)v.getParent();break;}}
       if(target==null)return;
       final ViewGroup box=target;
-      final List<View> origItems=new ArrayList<>(),mainItems=new ArrayList<>(),ghostItems=new ArrayList<>(),voiceItems=new ArrayList<>(),radarItems=new ArrayList<>();
+      final List<View> origItems=new ArrayList<>(),mainItems=new ArrayList<>(),ghostItems=new ArrayList<>(),voiceItems=new ArrayList<>(),radarItems=new ArrayList<>(),antiDelItems=new ArrayList<>();
       for(int i=box.getChildCount()-1;i>=0;i--){
         View ch=box.getChildAt(i);
         if("drg_in_item".equals(ch.getTag()))box.removeViewAt(i);
         else if(ch.getVisibility()==View.VISIBLE){origItems.add(ch);ch.setVisibility(View.GONE);}
       }
-      final int[] page={0}; // 0=MAIN, 1=GHOST, 2=VOICE, 3=RADAR
+      final int[] page={0}; // 0=MAIN, 1=GHOST, 2=VOICE, 3=RADAR, 4=ANTIDEL
 
       final Runnable syncPages=()->{
         for(View v:mainItems)v.setVisibility(page[0]==0?View.VISIBLE:View.GONE);
         for(View v:ghostItems)v.setVisibility(page[0]==1?View.VISIBLE:View.GONE);
         for(View v:voiceItems)v.setVisibility(page[0]==2?View.VISIBLE:View.GONE);
         for(View v:radarItems)v.setVisibility(page[0]==3?View.VISIBLE:View.GONE);
+        for(View v:antiDelItems)v.setVisibility(page[0]==4?View.VISIBLE:View.GONE);
         scrollHostToTop(box);
         box.requestLayout();
         if(hostLayout!=null)hostLayout.requestLayout();
@@ -1013,18 +1178,11 @@ public class DrgPluginManager {
       styleSubRow(iOn,makeChevronView(ctx),18,18);
       box.addView(iOn);mainItems.add(iOn);
 
-      // 4. Anti-delete (Switch)
+      // 4. Anti-delete (Native SwipeBack picker like Online Radar, people & chats)
       final ActionBarMenuSubItem iAd=new ActionBarMenuSubItem(ctx,false,false,fRp);
       iAd.setTag("drg_in_item");
-      iAd.setTextAndIcon(DrgLang.get("pl_antidel"),0,DrgIcons.makeSvg(DrgIcons.ANTI_DELETE,Color.WHITE));
-      final View tglAd=DrgIcons.makeSwitchView(ctx,isAntiDelete(a));
-      styleSubRow(iAd,tglAd,38,22);
-      iAd.setOnClickListener(v->{
-        boolean nx=!isAntiDelete(a);
-        sp(a).edit().putBoolean("anti_del",nx).apply();
-        DrgIcons.setSwitchState(tglAd,nx);
-        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-      });
+      iAd.setTextAndIcon(DrgLang.get("pl_antidel")+" ("+antiDelWatched(a).size()+")",0,DrgIcons.makeSvg(DrgIcons.ANTI_DELETE,Color.WHITE));
+      styleSubRow(iAd,makeChevronView(ctx),18,18);
       box.addView(iAd);mainItems.add(iAd);
 
       // 5. Unlimited select (Switch)
@@ -1179,16 +1337,7 @@ public class DrgPluginManager {
                 break;
               }
             }
-            BackupImageView av=new BackupImageView(ctx);
-            av.setRoundRadius(AndroidUtilities.dp(14));
-            AvatarDrawable ad=new AvatarDrawable();
-            if(u!=null){
-              try{ad.setInfo(a,u);}catch(Throwable t1){try{ad.setInfo(u);}catch(Throwable ignored){}}
-              try{av.setForUserOrChat(u,ad);}catch(Throwable t2){av.setImageDrawable(ad);}
-            }else{
-              try{ad.setInfo(uid,title,null);}catch(Throwable ignored){}
-              av.setImageDrawable(ad);
-            }
+            BackupImageView av=makeDialogAvatar(ctx,a,uid,title);
             FrameLayout.LayoutParams alp=new FrameLayout.LayoutParams(AndroidUtilities.dp(28),AndroidUtilities.dp(28),Gravity.START|Gravity.CENTER_VERTICAL);
             if(Build.VERSION.SDK_INT>=17)alp.setMarginStart(AndroidUtilities.dp(12));
             alp.leftMargin=AndroidUtilities.dp(12);
@@ -1206,6 +1355,52 @@ public class DrgPluginManager {
           }
         }
         page[0]=3;
+        syncPages.run();
+      });
+
+      // Anti-delete submenu (lazy-built, people + chats/channels, avatars + green/red switches)
+      iAd.setOnClickListener(v->{
+        for(View av2:antiDelItems)box.removeView(av2);
+        antiDelItems.clear();
+        List<Long> dialogs=collectAntiDelDialogIds(a,did);
+        if(dialogs.isEmpty()){
+          ActionBarMenuSubItem empty=new ActionBarMenuSubItem(ctx,false,true,fRp);
+          empty.setTag("drg_in_item");
+          empty.setTextAndIcon(DrgLang.get("antidel_empty"),0,DrgIcons.makeSvg(DrgIcons.ANTI_DELETE,Color.WHITE));
+          styleSubRow(empty,null,0,0);
+          box.addView(empty);antiDelItems.add(empty);
+        }else{
+          for(int i=0;i<dialogs.size();i++){
+            final long itemDid=dialogs.get(i);
+            final String title=antiDelDialogTitle(a,itemDid);
+            final ActionBarMenuSubItem aSub=new ActionBarMenuSubItem(ctx,false,i==dialogs.size()-1,fRp);
+            aSub.setTag("drg_in_item");
+            aSub.setTextAndIcon(title,0,DrgIcons.makeTransparentIcon());
+            for(int c=0;c<aSub.getChildCount();c++){
+              View ch=aSub.getChildAt(c);
+              if(ch instanceof ImageView&&!"drg_right_acc".equals(ch.getTag())){
+                ch.setVisibility(View.INVISIBLE);
+                break;
+              }
+            }
+            BackupImageView av=makeDialogAvatar(ctx,a,itemDid,title);
+            FrameLayout.LayoutParams alp=new FrameLayout.LayoutParams(AndroidUtilities.dp(28),AndroidUtilities.dp(28),Gravity.START|Gravity.CENTER_VERTICAL);
+            if(Build.VERSION.SDK_INT>=17)alp.setMarginStart(AndroidUtilities.dp(12));
+            alp.leftMargin=AndroidUtilities.dp(12);
+            aSub.addView(av,alp);
+
+            final View aTgl=DrgIcons.makeSwitchView(ctx,isAntiDelWatched(a,itemDid));
+            styleSubRow(aSub,aTgl,38,22,54);
+            aSub.setOnClickListener(rv->{
+              toggleAntiDelWatch(a,itemDid);
+              DrgIcons.setSwitchState(aTgl,isAntiDelWatched(a,itemDid));
+              iAd.setText(DrgLang.get("pl_antidel")+" ("+antiDelWatched(a).size()+")");
+              rv.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            });
+            box.addView(aSub);antiDelItems.add(aSub);
+          }
+        }
+        page[0]=4;
         syncPages.run();
       });
 
