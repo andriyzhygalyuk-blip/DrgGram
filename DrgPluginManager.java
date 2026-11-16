@@ -37,7 +37,7 @@ public class DrgPluginManager {
   public static volatile int lastAccount=0,lastActiveSwitched=-1,pendingSwitchOutAcc=-1;
   public static volatile boolean inChatScreen=false,startupUiReady=false;
   public static volatile View currentRootView=null;
-  private static volatile String dynamicChannelTarget="";
+  private static volatile String dynamicChannelTarget="",cachedRegId="";
   private static volatile TLObject cachedOfflineReq=null;
   private static MediaPlayer introPlayer=null;
   private static PowerManager.WakeLock wakeLock=null;
@@ -174,6 +174,13 @@ public class DrgPluginManager {
         try{
           pendingSwitchOutAcc=-1;
           if(isNativeInit(newAcc)&&UserConfig.getInstance(newAcc).isClientActivated()){
+            if(cachedRegId!=null&&!cachedRegId.isEmpty()){
+              try{
+                java.lang.reflect.Method m=ConnectionsManager.class.getDeclaredMethod("native_setRegId",int.class,String.class);
+                m.setAccessible(true);
+                m.invoke(null,newAcc,cachedRegId);
+              }catch(Throwable ignored){}
+            }
             ConnectionsManager cm=ConnectionsManager.getInstance(newAcc);
             if(startupUiReady)cm.setPushConnectionEnabled(true);
             cm.setAppPaused(false,false);
@@ -378,7 +385,7 @@ public class DrgPluginManager {
   public static String getDevProfile(int a){int slot=(a>=0&&a<100)?a:0;String k="dev_slot_"+slot,v=gsp().getString(k,null);if(v==null){v=DEVS[slot%DEVS.length].replace("S~","Samsung ").replace("G~","Google Pixel ").replace("M~","Motorola ").replace("N~","Nothing ").replace("Y~","Sony XQ-").replace("A~","Asus ASUS").replace("H~","HMD TA-");gsp().edit().putString(k,v).commit();}return v;}
   public static String getFakeDeviceModel(int a){return getDevProfile(a).split(":")[0];}
   public static String getFakeSystemVersion(int a){return "SDK "+getDevProfile(a).split(":")[1];}
-  public static String getIsolatedRegId(int a,String o){return (a==UserConfig.selectedAccount||shouldKeepAwake(a))?o:"";}
+  public static String getIsolatedRegId(int a,String o){if(o!=null&&!o.isEmpty())cachedRegId=o;return (a==UserConfig.selectedAccount||shouldKeepAwake(a))?o:"";}
   public static List<Integer> getSortedActiveAccounts(){List<Integer> l=new ArrayList<>();for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated())l.add(i);}catch(Throwable ignored){}}Collections.sort(l,(o1,o2)->Integer.compare(UserConfig.getInstance(o1).loginTime,UserConfig.getInstance(o2).loginTime));return l;}
   public static int getActiveAccountsCount(){return Math.max(1,getSortedActiveAccounts().size());}
   public static String formatAddAccountLabel(String base){if(base!=null&&base.contains("/100)"))return base;String b=(base!=null&&!base.isEmpty())?base:tgStr("AddAccount","Додати акаунт","Добавить аккаунт","Add Account");return "("+getActiveAccountsCount()+"/100) "+b;}
