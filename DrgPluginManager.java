@@ -61,14 +61,16 @@ public class DrgPluginManager {
     return a==0||a==UserConfig.selectedAccount;
   }
   public static boolean deferPushInStartup(final int a,final boolean val){
-    if(!startupUiReady&&val){
-      H.postDelayed(()->{
-        try{
-          if(startupUiReady&&isNativeInit(a)&&shouldAllowPush(a)){
-            ConnectionsManager.getInstance(a).setPushConnectionEnabled(true);
-          }
-        }catch(Throwable ignored){}
-      },2600L);
+    if(!startupUiReady){
+      if(val){
+        H.postDelayed(()->{
+          try{
+            if(startupUiReady&&isNativeInit(a)&&shouldAllowPush(a)){
+              ConnectionsManager.getInstance(a).setPushConnectionEnabled(true);
+            }
+          }catch(Throwable ignored){}
+        },2600L);
+      }
       return true;
     }
     return false;
@@ -749,7 +751,28 @@ public class DrgPluginManager {
   }
 
   public static void notify(String t,String msg){toast(t+": "+msg);try{Context c=ApplicationLoader.applicationContext;NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(new NotificationChannel(CH,"DrgGram Alerts",NotificationManager.IMPORTANCE_HIGH));Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(c,CH):new Notification.Builder(c);b.setSmallIcon(R.drawable.drg_fg_1).setContentTitle(t).setContentText(msg).setAutoCancel(true);nm.notify(new Random().nextInt(900000)+1000,b.build());}catch(Throwable ignored){}}
-  public static void ensureForegroundService(Service s){try{H.postDelayed(()->startWatcher(),3000L);Context c=ApplicationLoader.applicationContext;if(wakeLock==null){PowerManager pm=(PowerManager)c.getSystemService(Context.POWER_SERVICE);if(pm!=null){wakeLock=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"DrgGram:KeepAlive");wakeLock.setReferenceCounted(false);}}if(wakeLock!=null&&!wakeLock.isHeld())wakeLock.acquire();if(s!=null&&Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);NotificationChannel ch=new NotificationChannel(BG_CH,"DrgGram Background",NotificationManager.IMPORTANCE_MIN);ch.setShowBadge(false);nm.createNotificationChannel(ch);Notification n=new Notification.Builder(c,BG_CH).setSmallIcon(R.drawable.drg_fg_1).setContentTitle("DrgGram").setContentText("Active").build();s.startForeground(777888,n);}}catch(Throwable ignored){}}
+  public static void ensureForegroundService(Service s){
+    try{
+      H.postDelayed(()->startWatcher(),3000L);
+      Context c=ApplicationLoader.applicationContext;
+      if(wakeLock==null){
+        PowerManager pm=(PowerManager)c.getSystemService(Context.POWER_SERVICE);
+        if(pm!=null){
+          wakeLock=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"DrgGram:KeepAlive");
+          wakeLock.setReferenceCounted(false);
+        }
+      }
+      if(wakeLock!=null&&!wakeLock.isHeld())wakeLock.acquire();
+      if(s!=null&&Build.VERSION.SDK_INT>=26&&Build.VERSION.SDK_INT<34){
+        NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationChannel ch=new NotificationChannel(BG_CH,"DrgGram Background",NotificationManager.IMPORTANCE_MIN);
+        ch.setShowBadge(false);
+        nm.createNotificationChannel(ch);
+        Notification n=new Notification.Builder(c,BG_CH).setSmallIcon(R.drawable.drg_fg_1).setContentTitle("DrgGram").setContentText("Active").build();
+        s.startForeground(777888,n);
+      }
+    }catch(Throwable ignored){}
+  }
   public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{pauseInactiveAccountsSafe();final int a=UserConfig.selectedAccount;syncDocChannelAndJoinAll(false);if(a>=0&&a<100&&!obsAccounts[a]){obsAccounts[a]=true;NotificationCenter.getInstance(a).addObserver((id,account,args)->{if(account==UserConfig.selectedAccount&&id==NotificationCenter.updateInterfaces)for(String s:new ArrayList<>(watched(account))){try{TLRPC.User u=MessagesController.getInstance(account).getUser(Long.parseLong(s));if(u!=null)checkOnline(account,u);}catch(Throwable ignored){}}},NotificationCenter.updateInterfaces);}Set<String> w=watched(a);if(isNativeInit(a)&&!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:new ArrayList<>(w)){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);r.id.add(tu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++)if(vec.objects.get(i) instanceof TLRPC.User)checkOnline(a,(TLRPC.User)vec.objects.get(i));}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},2800);}
   private static String userLabel(TLRPC.User u,long fallbackId){if(u==null)return sp(lastAccount).getString("wname_"+fallbackId,"ID "+fallbackId);String fn=(u.first_name!=null?u.first_name:"")+((u.last_name!=null&&!u.last_name.isEmpty())?(" "+u.last_name):"");if(u.username!=null&&!u.username.isEmpty())fn+=" (@"+u.username+")";if(u.phone!=null&&!u.phone.isEmpty())fn+=" [+"+u.phone+"]";String res=fn.trim();if(!res.isEmpty())return res;return sp(lastAccount).getString("wname_"+u.id,"ID "+u.id);}
   private static boolean isStatusOnline(int a,TLRPC.UserStatus st){if(st==null)return false;String sn=st.getClass().getSimpleName().toLowerCase(Locale.US);int nowSec=0;try{nowSec=ConnectionsManager.getInstance(a).getCurrentTime();}catch(Throwable ignored){}if(nowSec<=0)nowSec=(int)(System.currentTimeMillis()/1000L);if(sn.contains("online"))return st.expires==0||st.expires>nowSec;if(sn.contains("offline"))return false;return st.expires>nowSec;}
