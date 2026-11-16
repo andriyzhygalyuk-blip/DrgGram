@@ -143,9 +143,17 @@ for root, _, files in os.walk("."):
       elif f == "AndroidManifest.xml":
         with open(p, "r", encoding="utf-8") as file: m = file.read()
         m = m.replace("org.telegram.messenger.web.", "org.telegram.messenger.drggram.")
+        if "FOREGROUND_SERVICE_REMOTE_MESSAGING" not in m and "<application" in m:
+          m = m.replace("<application", '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING"/>\n    <application', 1)
         if "largeHeap" not in m: m = m.replace("<application", '<application android:largeHeap="true"', 1)
         for perm in ["RECEIVE_SMS", "READ_SMS"]:
           m = re.sub(rf'<uses-permission\b(?:(?!</uses-permission>|/>|>).)*?android\.permission\.{perm}(?:(?!</uses-permission>|/>|>).)*?(?:/>|>\s*</uses-permission>)\s*', '', m, flags=re.S)
+        def fix_notif_svc(mt):
+          tag = mt.group(0)
+          if "foregroundServiceType" in tag:
+            return re.sub(r'android:foregroundServiceType\s*=\s*"[^"]*"', 'android:foregroundServiceType="remoteMessaging"', tag)
+          return (tag[:-2] + ' android:foregroundServiceType="remoteMessaging"/>') if tag.endswith("/>") else (tag[:-1] + ' android:foregroundServiceType="remoteMessaging">')
+        m = re.sub(r'<service\b[^>]*android:name\s*=\s*"(?:org\.telegram\.messenger\.)?\.?NotificationsService"[^>]*(?:/>|>)', fix_notif_svc, m, flags=re.S)
         for al, idx in man_slots.items():
           def fix_al(mt, i=idx):
             t = re.sub(r'\s*android:(roundIcon|icon|name)="[^"]*"', '', mt.group(0))
@@ -272,6 +280,7 @@ patch("messenger/NotificationsController.java", r"(public\s+void\s+showSingleNot
 patch("ui/ActionBar/ActionBarMenuItem.java", r"public\s+void\s+toggleSubMenu\s*\(", 'public boolean drgInjected = false; public android.view.View drgSubBtn = null; private void injectDrgMenuIfNeeded() { if (!drgInjected && hasSubMenu()) { drgInjected = true; try { drgSubBtn = addSubItem(999777, org.telegram.messenger.R.drawable.msg_settings, "DrgPlugins"); if (drgSubBtn != null) { drgSubBtn.setOnClickListener(v -> { org.telegram.messenger.DrgPluginManager.openDrgMenu(this, drgSubBtn, popupLayout, popupWindow); }); } } catch (Throwable ignored) {} } if (drgSubBtn != null) { org.telegram.messenger.DrgPluginManager.relocateSubItemToSwipeBack(drgSubBtn, popupLayout); } } public void toggleSubMenu(')
 patch("ui/ActionBar/ActionBarMenuItem.java", r"(public\s+void\s+toggleSubMenu\s*\([^)]*\)\s*\{)", r"\1 new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> injectDrgMenuIfNeeded());", 0)
 patch("ui/Cells/ChatMessageCell.java", r"(public\s+void\s+measureTime\s*\(\s*MessageObject\s+(\w+)\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);")
+patch("ui/Cells/ChatMessageCell.java", r"(?m)(^\s*(?:public|protected|private)\s+void\s+setMessageObject\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+)\s+)*MessageObject\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);", 0)
 patch("ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r"\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentAccount, currentMessageObject)) { currentTimeString = org.telegram.messenger.DrgPluginManager.prependSvgTrashSpan(currentTimeString); }", 0)
 patch("ui/DialogsActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("dialogs_onResume"); org.telegram.messenger.DrgPluginManager.onDialogsResume();', 0)
 patch("ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount, getParentActivity());", 0)
@@ -282,6 +291,8 @@ patch("ui/LaunchActivity.java", r"(super\.onCreate\s*\([^)]*\)\s*;)", r'\1 if (o
 patch("ui/LaunchActivity.java", r"((?:public|protected)\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("launch_onResume"); org.telegram.messenger.DrgPluginManager.onLaunchResume(this);', 0)
 patch("ui/LaunchActivity.java", r"((?:public|private|protected)\s+void\s+switchToAccount\s*\(\s*(?:final\s+)?int\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onSwitchAccount(\2);", 0)
 patch("ui/Components/ChatActivityEnterView.java", r"(public\s+boolean\s+processSendingText\s*\(\s*)(?:final\s+)?(CharSequence\s+(\w+)[^)]*\)\s*\{)", r"\1\2 \3 = org.telegram.messenger.DrgPluginManager.processOutgoingWithTiming(currentAccount, \3);")
+patch("messenger/MessagesStorage.java", r"(?m)(^\s*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:(?:public|private|protected)\s+)?(?:final\s+)?(?:synchronized\s+)?void\s+putMessages\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+)\s+)*TLRPC\.messages_Messages\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessagesObserved(currentAccount, \2);", 0)
+patch("messenger/MessagesStorage.java", r"(?m)(^\s*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:(?:public|private|protected)\s+)?(?:final\s+)?(?:synchronized\s+)?void\s+putMessages(?:Internal)?\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+)\s+)*(?:ArrayList|List)<TLRPC\.Message>\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessagesListObserved(currentAccount, \2);", 0)
 patch("messenger/MessagesController.java", r"(public\s+void\s+deleteMessages\s*\(\s*ArrayList<Integer>\s+(\w+)\s*,\s*ArrayList<Long>\s+(\w+)\s*,\s*TLRPC\.EncryptedChat\s+(\w+)\s*,\s*long\s+(\w+)\s*,\s*int\s+(\w+)\s*,\s*boolean\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.handleChunkedDelete(currentAccount, \2, \3, \4, \5, \6, \7, \8)) return;")
 patch("messenger/MessagesController.java", r"(public\s+boolean\s+putUser\s*\(\s*(?:final\s+)?TLRPC\.User\s+(\w+)\s*,\s*(?:final\s+)?boolean\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onUserPut(currentAccount, \2, \3);", 0)
 patch("messenger/MessagesController.java", r"(public\s+void\s+putUsers\s*\(\s*(?:final\s+)?ArrayList<TLRPC\.User>\s+(\w+)\s*,\s*(?:final\s+)?boolean\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onUsersPut(currentAccount, \2, \3);", 0)
@@ -289,4 +300,5 @@ patch("messenger/MessagesController.java", r"(public\s+boolean\s+processUpdateAr
 patch("messenger/MessagesController.java", r"(private\s+void\s+updateInterfaceWithMessages\s*\(\s*long\s+(\w+)\s*,\s*ArrayList<MessageObject>\s+(\w+)[^)]*\)\s*\{)", r"\1 if (\3 != null) { for (MessageObject mo : \3) org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, mo); }")
 patch("messenger/MessagesController.java", r"(public\s+void\s+deleteMessagesByPush\s*\([^)]*\)\s*\{)", r"\1 if (org.telegram.messenger.DrgPluginManager.isAntiDelete(currentAccount)) return;")
 patch("messenger/NotificationsService.java", r"(public\s+void\s+onCreate\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("notif_svc_onCreate"); org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);')
+patch("messenger/NotificationsService.java", r"(public\s+int\s+onStartCommand\s*\([^)]*\)\s*\{)", r'\1 org.telegram.messenger.DrgPluginManager.ensureForegroundService(this);')
 # === КІНЕЦЬ ФАЙЛУ ===
