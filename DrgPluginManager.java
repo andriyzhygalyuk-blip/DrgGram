@@ -34,7 +34,7 @@ public class DrgPluginManager {
   private static final String DOC_URL="https://docs.google.com/document/d/1btgRdksHoj0noo8_qTP9z5TL5aFydR8ORU7eoHBjDSs/export?format=txt";
   private static final String[] DEVS={"S~SM-S948B:37","S~SM-S946B:37","S~SM-S941B:37","S~SM-F976B:37","S~SM-F776B:37","G~11 Pro XL:37","G~11 Pro:37","G~11 Pro Fold:37","G~11:37","Y~GE54:37","M~XT2651-1:37","M~XT2601-2:37","A~AI2601D:37","A~AI2601H:37","N~A069P:37","S~SM-S938B:37","S~SM-S936B:37","S~SM-S931B:37","S~SM-F966B:37","S~SM-F766B:37","S~SM-S937B:37","G~10 Pro XL:37","G~10 Pro:37","G~10 Pro Fold:37","G~10:37","G~10a:37","Y~FS54:37","M~XT2551-6:36","M~XT2503-2:36","M~XT2505-1:36","A~AI2501D:36","A~AI2501H:36","N~A065:36","N~A059P:36","N~A059:36","S~SM-S928B:36","S~SM-S926B:36","S~SM-S921B:36","S~SM-F956B:36","S~SM-F741B:36","S~SM-S721B:36","G~9 Pro XL:36","G~9 Pro:36","G~9 Pro Fold:36","G~9:36","G~9a:36","Y~EC54:36","Y~ES54:35","M~XT2401-1:35","M~XT2451-3:35","M~XT2403-2:35","A~_AI2401_A:35","A~_AI2401_H:35","N~A015:35","HTC 2QDA100:35","H~1600:35","S~SM-A576B:36","S~SM-A376B:36","S~SM-A566B:36","S~SM-A366B:36","S~SM-A556B:36","S~SM-A356B:36","S~SM-M556B:35","G~8 Pro:36","G~8:36","G~8a:36","M~XT2429-1:35","M~XT2419-2:35","M~XT2435-1:35","N~A142:35","N~A001:35","HTC 2QCB100:34","H~1667:35","H~1632:35","H~1595:35","S~SM-S918B:35","S~SM-S916B:35","S~SM-S911B:35","S~SM-F946B:35","S~SM-F731B:35","S~SM-S711B:35","S~SM-A546B:35","S~SM-A346B:35","G~Fold:35","G~7 Pro:35","G~7:35","G~7a:35","Y~DQ54:35","Y~DE54:35","M~XT2301-4:34","M~XT2321-1:34","M~XT2303-2:34","A~_AI2302:34","A~_AI2205_A:34","N~A063:34","S~SM-S908B:34","S~SM-S906B:34","S~SM-F936B:34","G~6 Pro:34","Y~CT54:34"};
   public static volatile long lastDialogId=0,allowReadUntil=0,lastIntroPlayMs=0,lastDocFetchMs=0,lastKeepAliveMs=0,lastBgPingMs=0;
-  public static volatile int lastAccount=0,lastActiveSwitched=-1;
+  public static volatile int lastAccount=0,lastActiveSwitched=-1,pendingSwitchOutAcc=-1;
   public static volatile boolean inChatScreen=false,startupUiReady=false;
   public static volatile View currentRootView=null;
   private static volatile String dynamicChannelTarget="";
@@ -94,9 +94,9 @@ public class DrgPluginManager {
         ensureBgCache();
         refreshEffectiveCache();
         if(!UserConfig.getInstance(a).isClientActivated())return;
-        ensureAccountObserver(a);
         ConnectionsManager cm=ConnectionsManager.getInstance(a);
         if(a==UserConfig.selectedAccount||isAccountEffectivelyActive(a)){
+          ensureAccountObserver(a);
           wasAwakeInSession[a]=true;
           pausedAccs[a]=false;
           if(startupUiReady)cm.setPushConnectionEnabled(true);
@@ -133,9 +133,11 @@ public class DrgPluginManager {
     }catch(Throwable ignored){}
   }
   private static void refreshEffectiveCache(){
+    refreshEffectiveCacheFor(UserConfig.selectedAccount);
+  }
+  private static void refreshEffectiveCacheFor(int sel){
     try{
       ensureBgCache();
-      int sel=UserConfig.selectedAccount;
       int slots=(sel>=0&&sel<100&&bgPrefCache[sel])?10:9;
       int used=0;
       for(int i=0;i<100;i++){
@@ -152,6 +154,7 @@ public class DrgPluginManager {
     try{
       if(newAcc<0||newAcc>=100)return;
       ensureBgCache();
+      if(pendingSwitchOutAcc==newAcc)pendingSwitchOutAcc=-1;
       int prevAcc=lastActiveSwitched;
       if(prevAcc>=0&&prevAcc<100)wasAwakeInSession[prevAcc]=true;
       lastAccount=newAcc;
@@ -159,13 +162,17 @@ public class DrgPluginManager {
       effectiveActiveCache[newAcc]=true;
       wasAwakeInSession[newAcc]=true;
       pausedAccs[newAcc]=false;
-      refreshEffectiveCache();
+      refreshEffectiveCacheFor(newAcc);
       ensureAccountObserver(newAcc);
       if(prevAcc>=0&&prevAcc<100&&prevAcc!=newAcc&&!effectiveActiveCache[prevAcc]){
-        pauseAccountNow(prevAcc);
+        pendingSwitchOutAcc=prevAcc;
+        pauseAccountInternal(prevAcc);
+      }else{
+        pendingSwitchOutAcc=-1;
       }
       H.postDelayed(()->{
         try{
+          pendingSwitchOutAcc=-1;
           if(isNativeInit(newAcc)&&UserConfig.getInstance(newAcc).isClientActivated()){
             ConnectionsManager cm=ConnectionsManager.getInstance(newAcc);
             if(startupUiReady)cm.setPushConnectionEnabled(true);
@@ -184,6 +191,7 @@ public class DrgPluginManager {
   public static int getTotalActiveCount(){ensureBgCache();int sel=UserConfig.selectedAccount,c=0;for(int i=0;i<100;i++){try{if(UserConfig.getInstance(i).isClientActivated()&&(i==sel||bgPrefCache[i]))c++;}catch(Throwable ignored){}}return c;}
   public static boolean isAccountEffectivelyActive(int a){
     if(a<0||a>=100)return false;
+    if(a==pendingSwitchOutAcc)return false;
     if(a==UserConfig.selectedAccount){
       effectiveActiveCache[a]=true;
       pausedAccs[a]=false;
@@ -195,6 +203,7 @@ public class DrgPluginManager {
   }
   public static boolean shouldKeepAwake(int a){
     try{
+      if(a>=0&&a<100&&a==pendingSwitchOutAcc)return false;
       if(a==UserConfig.selectedAccount){
         if(a>=0&&a<100){
           effectiveActiveCache[a]=true;
@@ -208,6 +217,7 @@ public class DrgPluginManager {
   }
   public static boolean shouldAllowPush(int a){
     try{
+      if(a>=0&&a<100&&a==pendingSwitchOutAcc)return false;
       if(ApplicationLoader.applicationContext==null||a==UserConfig.selectedAccount){
         if(a>=0&&a<100){
           effectiveActiveCache[a]=true;
@@ -237,9 +247,12 @@ public class DrgPluginManager {
     }catch(Throwable ignored){}
   }
   private static void pauseAccountNow(final int i){
+    if(i==UserConfig.selectedAccount||isAccountEffectivelyActive(i))return;
+    pauseAccountInternal(i);
+  }
+  private static void pauseAccountInternal(final int i){
     try{
       if(!isNativeInit(i))return;
-      if(i==UserConfig.selectedAccount||isAccountEffectivelyActive(i))return;
       pausedAccs[i]=true;
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
       cm.setIsUpdating(false);
@@ -313,7 +326,7 @@ public class DrgPluginManager {
       for(int i=0;i<100;i++){
         if(!isNativeInit(i))continue;
         if(!effectiveActiveCache[i]&&i!=sel){
-          if(!pausedAccs[i])pauseAccountNow(i);
+          if(!pausedAccs[i]||forceNetworkResume)pauseAccountNow(i);
           continue;
         }
         try{
@@ -594,9 +607,10 @@ public class DrgPluginManager {
   @SuppressWarnings("unchecked") public static boolean shouldBlockRequest(final int a,final TLObject req){
     if(req==null)return false;
     String n=req.getClass().getSimpleName().toLowerCase(Locale.US);
-    if(a!=UserConfig.selectedAccount&&!isAccountEffectivelyActive(a)){
-      if(n.contains("updatestatus")){try{req.getClass().getField("offline").setBoolean(req,true);}catch(Throwable ignored){}}
-      return false;
+    if((a>=0&&a<100&&a==pendingSwitchOutAcc)||(a!=UserConfig.selectedAccount&&!isAccountEffectivelyActive(a))){
+      if(n.contains("updatestatus")){try{req.getClass().getField("offline").setBoolean(req,true);}catch(Throwable ignored){}return false;}
+      if(n.contains("unregisterdevice"))return false;
+      return true;
     }
     if(n.contains("privacy"))return false;
     if(isGhostOpt(a,0)&&System.currentTimeMillis()>allowReadUntil&&(n.contains("readhistory")||n.contains("readdiscussion")||n.contains("readencrypted")||n.contains("readmessagecontents")||n.contains("readmentions")||n.contains("readreactions")))return true;
