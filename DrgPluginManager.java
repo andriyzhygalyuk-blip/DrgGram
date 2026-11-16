@@ -42,12 +42,21 @@ public class DrgPluginManager {
   private static MediaPlayer introPlayer=null;
   private static PowerManager.WakeLock wakeLock=null;
   private static boolean started=false,inChunkDel=false;
-  private static volatile boolean bgCacheReady=false;
+  private static volatile boolean bgCacheReady=false,bgChannelCreated=false;
   private static final boolean[] nativeInited=new boolean[100],obsAccounts=new boolean[100],pausedAccs=new boolean[100],wasAwakeInSession=new boolean[100],bgPrefCache=new boolean[100],effectiveActiveCache=new boolean[100];
   private static int bgQueueCursor=0;
   @SuppressWarnings("unchecked") private static final Set<String>[] watchedCache=new Set[100],delIdsCache=new Set[100],antiDelWatchedCache=new Set[100];
-  private static final Map<String,String> msgMemCache=new ConcurrentHashMap<>();
-  private static final Map<String,Long> msgDidMap=new ConcurrentHashMap<>();
+  private static final class CachedMsg{
+    final long senderUid;
+    final String text;
+    CachedMsg(long senderUid,String text){this.senderUid=senderUid;this.text=text;}
+  }
+  private static final Map<String,CachedMsg> msgRawCache=Collections.synchronizedMap(new LinkedHashMap<String,CachedMsg>(512,0.75f,true){
+    @Override protected boolean removeEldestEntry(Map.Entry<String,CachedMsg> e){return size()>6000;}
+  });
+  private static final Map<String,Long> msgDidMap=Collections.synchronizedMap(new LinkedHashMap<String,Long>(1024,0.75f,true){
+    @Override protected boolean removeEldestEntry(Map.Entry<String,Long> e){return size()>25000;}
+  });
   private static final Map<String,Boolean> onlineMap=new ConcurrentHashMap<>();
   private static final Map<String,Long> onlineSince=new ConcurrentHashMap<>();
   private static final Set<Integer> mutedHandled=Collections.synchronizedSet(new HashSet<>());
@@ -85,6 +94,7 @@ public class DrgPluginManager {
         ensureBgCache();
         refreshEffectiveCache();
         if(!UserConfig.getInstance(a).isClientActivated())return;
+        ensureAccountObserver(a);
         ConnectionsManager cm=ConnectionsManager.getInstance(a);
         if(a==UserConfig.selectedAccount||isAccountEffectivelyActive(a)){
           wasAwakeInSession[a]=true;
@@ -150,6 +160,7 @@ public class DrgPluginManager {
       wasAwakeInSession[newAcc]=true;
       pausedAccs[newAcc]=false;
       refreshEffectiveCache();
+      ensureAccountObserver(newAcc);
       if(prevAcc>=0&&prevAcc<100&&prevAcc!=newAcc&&!effectiveActiveCache[prevAcc]){
         pauseAccountNow(prevAcc);
       }
@@ -215,6 +226,7 @@ public class DrgPluginManager {
       pausedAccs[i]=false;
       MessagesController.getInstance(i);
       NotificationsController.getInstance(i);
+      ensureAccountObserver(i);
       ConnectionsManager cm=ConnectionsManager.getInstance(i);
       if(!isNativeInit(i))return;
       if(startupUiReady)cm.setPushConnectionEnabled(true);
@@ -478,7 +490,7 @@ public class DrgPluginManager {
   public static synchronized void log(int a,String e){try{String o=sp(a).getString("log",""),u="["+now()+"] "+e+"\n"+o;if(u.length()>25000)u=u.substring(0,25000);sp(a).edit().putString("log",u).apply();}catch(Throwable ignored){}}
 
   public static Set<String> antiDelWatched(int a){
-    if(a<0||a>=100)return Collections.emptySet();
+    if(a<0||a>=100||ApplicationLoader.applicationContext==null)return Collections.emptySet();
     Set<String> s=antiDelWatchedCache[a];
     if(s==null){
       try{s=Collections.synchronizedSet(new HashSet<>(sp(a).getStringSet("anti_del_watched",Collections.emptySet())));}
@@ -673,6 +685,7 @@ public class DrgPluginManager {
     if(m.message!=null&&!m.message.isEmpty())return m.message;
     if(m.media==null)return "";
     String cn=m.media.getClass().getSimpleName().toLowerCase(Locale.US);
+    if(cn.contains("empty"))return "";
     if(cn.contains("photo"))return tr("[Фото]","[Фото]","[Photo]");
     if(cn.contains("document")){
       try{
@@ -691,6 +704,9 @@ public class DrgPluginManager {
       }catch(Throwable ignored){}
       return tr("[Файл]","[Файл]","[File]");
     }
+    if(cn.contains("contact"))return tr("[Контакт]","[Контакт]","[Contact]");
+    if(cn.contains("geo")||cn.contains("venue"))return tr("[Геолокація]","[Геолокация]","[Location]");
+    if(cn.contains("poll"))return tr("[Опитування]","[Опрос]","[Poll]");
     return "";
   }
 
@@ -714,35 +730,44 @@ public class DrgPluginManager {
   }
 
   private static long getKnownMsgDid(int a,int mid){
-    if(mid<=0)return 0L;
+    if(mid<=0||a<0||a>=100)return 0L;
     String mk=a+"_"+mid;
     Long d=msgDidMap.get(mk);
     if(d!=null)return d;
+    if(ApplicationLoader.applicationContext==null)return 0L;
     long spDid=sp(a).getLong("mdid_"+mid,0L);
     if(spDid!=0L)msgDidMap.put(mk,spDid);
     return spDid;
   }
 
   private static void saveMsgCacheKeyed(int a,long did,long channelId,int mid,long senderUid,String text){
-    if(mid<=0||did==0)return;
-    if(!isAntiDelWatched(a,did))return;
-    if(text==null||text.isEmpty())return;
+    if(a<0||a>=100||mid<=0||did==0)return;
     try{
+      boolean isWatched=isAntiDelWatched(a,did);
       if(channelId==0){
         String mk=a+"_"+mid;
-        if(!msgDidMap.containsKey(mk)){
-          msgDidMap.put(mk,did);
-          if(msgDidMap.size()>4000)msgDidMap.clear();
-          sp(a).edit().putLong("mdid_"+mid,did).apply();
+        msgDidMap.put(mk,did);
+        if(isWatched&&ApplicationLoader.applicationContext!=null){
+          SharedPreferences p=sp(a);
+          if(p.getLong("mdid_"+mid,0L)!=did){
+            p.edit().putLong("mdid_"+mid,did).apply();
+          }
         }
       }
+      if(text==null||text.isEmpty())return;
       String key=(channelId!=0)?("mc_"+(-Math.abs(channelId))+"_"+mid):("mc_"+mid);
       String memK=a+"_"+key;
-      if(msgMemCache.containsKey(memK))return;
-      String label=formatPeerTitle(a,did,senderUid)+": «"+text+"»";
-      msgMemCache.put(memK,label);
-      if(msgMemCache.size()>4000)msgMemCache.clear();
-      sp(a).edit().putString(key,label).apply();
+      CachedMsg ex=msgRawCache.get(memK);
+      if(ex==null||ex.text.isEmpty()||(ex.senderUid==0&&senderUid>0)){
+        msgRawCache.put(memK,new CachedMsg(senderUid,text));
+      }
+      if(isWatched&&ApplicationLoader.applicationContext!=null){
+        SharedPreferences p=sp(a);
+        if(!p.contains(key)){
+          String label=formatPeerTitle(a,did,senderUid)+": «"+text+"»";
+          p.edit().putString(key,label).apply();
+        }
+      }
     }catch(Throwable ignored){}
   }
 
@@ -750,8 +775,53 @@ public class DrgPluginManager {
     saveMsgCacheKeyed(a,uid,0L,mid,uid,text);
   }
 
+  public static void onMessagesObserved(final int a,final TLRPC.messages_Messages ms){
+    if(ms==null||ms.messages==null)return;
+    onMessagesListObserved(a,ms.messages);
+  }
+
+  public static void onMessagesListObserved(final int a,final List<TLRPC.Message> msgs){
+    if(a<0||a>=100||msgs==null||msgs.isEmpty())return;
+    try{
+      for(int i=0;i<msgs.size();i++){
+        observeRawMessage(a,msgs.get(i));
+      }
+    }catch(Throwable ignored){}
+  }
+
+  public static void observeRawMessage(final int a,final TLRPC.Message m){
+    if(a<0||a>=100||m==null||m.id<=0)return;
+    try{
+      long cid=0,did=0;
+      if(m.peer_id!=null){
+        cid=m.peer_id.channel_id;
+        if(cid!=0)did=-Math.abs(cid);
+        else if(m.peer_id.chat_id!=0)did=-Math.abs(m.peer_id.chat_id);
+        else if(m.peer_id.user_id!=0)did=m.peer_id.user_id;
+      }
+      if(did==0&&m.dialog_id!=0){
+        did=m.dialog_id;
+        if(did<0){
+          TLRPC.Chat ch=MessagesController.getInstance(a).getChat(Math.abs(did));
+          if(ch instanceof TLRPC.TL_channel||ch instanceof TLRPC.TL_channelForbidden)cid=Math.abs(did);
+        }
+      }
+      if(did==0)return;
+      long senderUid=0;
+      if(m.out){
+        senderUid=UserConfig.getInstance(a).getClientUserId();
+      }else if(m.from_id!=null&&m.from_id.user_id>0){
+        senderUid=m.from_id.user_id;
+      }else if(did>0){
+        senderUid=did;
+      }
+      String txt=describeMediaText(m);
+      saveMsgCacheKeyed(a,did,cid,m.id,senderUid,txt);
+    }catch(Throwable ignored){}
+  }
+
   public static void onMessageObserved(final int a,final MessageObject mo){
-    if(mo==null||mo.messageOwner==null)return;
+    if(mo==null||mo.messageOwner==null||a<0||a>=100)return;
     try{
       final long did=mo.getDialogId();
       if(did==0)return;
@@ -759,8 +829,13 @@ public class DrgPluginManager {
       long channelId=0;
       if(mo.messageOwner.peer_id!=null&&mo.messageOwner.peer_id.channel_id!=0){
         channelId=mo.messageOwner.peer_id.channel_id;
+      }else if(did<0){
+        try{
+          TLRPC.Chat ch=MessagesController.getInstance(a).getChat(Math.abs(did));
+          if(ch instanceof TLRPC.TL_channel||ch instanceof TLRPC.TL_channelForbidden)channelId=Math.abs(did);
+        }catch(Throwable ignored){}
       }
-      if(isAntiDelWatched(a,did)){
+      if(mid>0){
         long senderUid=0;
         if(mo.isOut()){
           senderUid=UserConfig.getInstance(a).getClientUserId();
@@ -772,9 +847,7 @@ public class DrgPluginManager {
         String txt=mo.messageOwner.message;
         if((txt==null||txt.isEmpty())&&mo.messageText!=null)txt=mo.messageText.toString();
         if(txt==null||txt.isEmpty())txt=describeMediaText(mo.messageOwner);
-        if(mid>0&&txt!=null&&!txt.isEmpty()){
-          saveMsgCacheKeyed(a,did,channelId,mid,senderUid,txt);
-        }
+        saveMsgCacheKeyed(a,did,channelId,mid,senderUid,txt);
       }
       if(did>0&&!mo.isOut()&&isMutedPm(a,did)&&mid>0&&!mutedHandled.contains(mid)){
         mutedHandled.add(mid);
@@ -818,13 +891,36 @@ public class DrgPluginManager {
         if(d.contains(delKey))continue;
         d.add(delKey);
         chg=true;
-        String cacheKey=(did<0)?("mc_"+did+"_"+id):("mc_"+id);
-        String cached=msgMemCache.get(a+"_"+cacheKey);
-        if(cached==null)cached=sp(a).getString(cacheKey,null);
+        String cached=null;
+        String persistKey=null;
+        if(did<0){
+          String chKey="mc_"+did+"_"+id;
+          CachedMsg cm=msgRawCache.get(a+"_"+chKey);
+          if(cm!=null&&!cm.text.isEmpty()){
+            cached=formatPeerTitle(a,did,cm.senderUid)+": «"+cm.text+"»";
+            persistKey=chKey;
+          }else{
+            cached=sp(a).getString(chKey,null);
+          }
+        }
+        if(cached==null){
+          String uKey="mc_"+id;
+          CachedMsg cm=msgRawCache.get(a+"_"+uKey);
+          if(cm!=null&&!cm.text.isEmpty()){
+            long titleDid=did!=0?did:getKnownMsgDid(a,id);
+            cached=formatPeerTitle(a,titleDid,cm.senderUid)+": «"+cm.text+"»";
+            persistKey=(did<0)?("mc_"+did+"_"+id):uKey;
+          }else{
+            cached=sp(a).getString(uKey,null);
+          }
+        }
         if(cached==null&&did!=0){
           cached=formatPeerTitle(a,did,did>0?did:0L)+" (ID "+id+")";
         }
         if(cached!=null){
+          if(persistKey!=null&&ApplicationLoader.applicationContext!=null&&!sp(a).contains(persistKey)){
+            sp(a).edit().putString(persistKey,cached).apply();
+          }
           String full=accountPrefix(a)+cached;
           log(a,tr("Видалено: ","Удалено: ","Deleted: ")+full);
           if(a==UserConfig.selectedAccount||isAccountEffectivelyActive(a)){
@@ -869,6 +965,8 @@ public class DrgPluginManager {
     try{
       H.postDelayed(()->startWatcher(),3000L);
       Context c=ApplicationLoader.applicationContext;
+      if(c==null&&s!=null)c=s.getApplicationContext();
+      if(c==null)return;
       if(wakeLock==null){
         PowerManager pm=(PowerManager)c.getSystemService(Context.POWER_SERVICE);
         if(pm!=null){
@@ -877,17 +975,69 @@ public class DrgPluginManager {
         }
       }
       if(wakeLock!=null&&!wakeLock.isHeld())wakeLock.acquire();
-      if(s!=null&&Build.VERSION.SDK_INT>=26&&Build.VERSION.SDK_INT<34){
-        NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationChannel ch=new NotificationChannel(BG_CH,"DrgGram Background",NotificationManager.IMPORTANCE_MIN);
-        ch.setShowBadge(false);
-        nm.createNotificationChannel(ch);
-        Notification n=new Notification.Builder(c,BG_CH).setSmallIcon(R.drawable.drg_fg_1).setContentTitle("DrgGram").setContentText("Active").build();
-        s.startForeground(777888,n);
+      if(s!=null&&Build.VERSION.SDK_INT>=26){
+        if(!bgChannelCreated){
+          NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
+          if(nm!=null){
+            NotificationChannel ch=new NotificationChannel(BG_CH,"DrgGram Background",NotificationManager.IMPORTANCE_MIN);
+            ch.setShowBadge(false);
+            nm.createNotificationChannel(ch);
+            bgChannelCreated=true;
+          }
+        }
+        Notification n=new Notification.Builder(c,BG_CH)
+          .setSmallIcon(R.drawable.drg_fg_1)
+          .setContentTitle("DrgGram")
+          .setContentText("Active")
+          .setOngoing(true)
+          .setShowWhen(false)
+          .build();
+        if(Build.VERSION.SDK_INT>=34){
+          s.startForeground(777888,n,android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING);
+        }else{
+          s.startForeground(777888,n);
+        }
       }
     }catch(Throwable ignored){}
   }
-  public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{pauseInactiveAccountsSafe();final int a=UserConfig.selectedAccount;syncDocChannelAndJoinAll(false);if(a>=0&&a<100&&!obsAccounts[a]){obsAccounts[a]=true;NotificationCenter.getInstance(a).addObserver((id,account,args)->{if(account==UserConfig.selectedAccount&&id==NotificationCenter.updateInterfaces)for(String s:new ArrayList<>(watched(account))){try{TLRPC.User u=MessagesController.getInstance(account).getUser(Long.parseLong(s));if(u!=null)checkOnline(account,u);}catch(Throwable ignored){}}},NotificationCenter.updateInterfaces);}Set<String> w=watched(a);if(isNativeInit(a)&&!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:new ArrayList<>(w)){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);r.id.add(tu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++)if(vec.objects.get(i) instanceof TLRPC.User)checkOnline(a,(TLRPC.User)vec.objects.get(i));}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},2800);}
+  private static void ensureAccountObserver(final int a){
+    if(a<0||a>=100||obsAccounts[a])return;
+    obsAccounts[a]=true;
+    final NotificationCenter.NotificationCenterDelegate del=(id,account,args)->{
+      if(id==NotificationCenter.updateInterfaces){
+        if(account==UserConfig.selectedAccount){
+          for(String s:new ArrayList<>(watched(account))){
+            try{
+              TLRPC.User u=MessagesController.getInstance(account).getUser(Long.parseLong(s));
+              if(u!=null)checkOnline(account,u);
+            }catch(Throwable ignored){}
+          }
+        }
+      }else if((id==NotificationCenter.messageReceivedByServer||id==NotificationCenter.messageReceivedByServer2)&&args!=null&&args.length>2){
+        if(args[2] instanceof TLRPC.Message){
+          observeRawMessage(account,(TLRPC.Message)args[2]);
+        }
+      }else if(id==NotificationCenter.messagesDidLoad&&args!=null){
+        for(int k=0;k<args.length;k++){
+          if(args[k] instanceof ArrayList){
+            ArrayList<?> list=(ArrayList<?>)args[k];
+            for(int i=0;i<list.size();i++){
+              Object el=list.get(i);
+              if(el instanceof MessageObject)onMessageObserved(account,(MessageObject)el);
+              else break;
+            }
+            break;
+          }
+        }
+      }
+    };
+    NotificationCenter nc=NotificationCenter.getInstance(a);
+    nc.addObserver(del,NotificationCenter.updateInterfaces);
+    nc.addObserver(del,NotificationCenter.messageReceivedByServer);
+    nc.addObserver(del,NotificationCenter.messageReceivedByServer2);
+    nc.addObserver(del,NotificationCenter.messagesDidLoad);
+  }
+  public static void startWatcher(){if(started)return;started=true;H.postDelayed(new Runnable(){@Override public void run(){try{pauseInactiveAccountsSafe();final int a=UserConfig.selectedAccount;syncDocChannelAndJoinAll(false);ensureAccountObserver(a);Set<String> w=watched(a);if(isNativeInit(a)&&!w.isEmpty()){TLRPC.TL_users_getUsers r=new TLRPC.TL_users_getUsers();for(String s:new ArrayList<>(w)){try{long uid=Long.parseLong(s);if(uid==777000)continue;TLRPC.User cachedU=MessagesController.getInstance(a).getUser(uid);if(cachedU!=null)checkOnline(a,cachedU);TLRPC.TL_inputUser tu=new TLRPC.TL_inputUser();tu.user_id=uid;tu.access_hash=cachedU!=null&&cachedU.access_hash!=0?cachedU.access_hash:sp(a).getLong("whash_"+uid,0L);r.id.add(tu);}catch(Throwable ignored){}}if(!r.id.isEmpty())ConnectionsManager.getInstance(a).sendRequest(r,(res,err)->{if(res instanceof org.telegram.tgnet.Vector){org.telegram.tgnet.Vector vec=(org.telegram.tgnet.Vector)res;for(int i=0;i<vec.objects.size();i++)if(vec.objects.get(i) instanceof TLRPC.User)checkOnline(a,(TLRPC.User)vec.objects.get(i));}});}}catch(Throwable ignored){}H.postDelayed(this,4000);}},2800);}
   private static String userLabel(TLRPC.User u,long fallbackId){if(u==null)return sp(lastAccount).getString("wname_"+fallbackId,"ID "+fallbackId);String fn=(u.first_name!=null?u.first_name:"")+((u.last_name!=null&&!u.last_name.isEmpty())?(" "+u.last_name):"");if(u.username!=null&&!u.username.isEmpty())fn+=" (@"+u.username+")";if(u.phone!=null&&!u.phone.isEmpty())fn+=" [+"+u.phone+"]";String res=fn.trim();if(!res.isEmpty())return res;return sp(lastAccount).getString("wname_"+u.id,"ID "+u.id);}
   private static boolean isStatusOnline(int a,TLRPC.UserStatus st){if(st==null)return false;String sn=st.getClass().getSimpleName().toLowerCase(Locale.US);int nowSec=0;try{nowSec=ConnectionsManager.getInstance(a).getCurrentTime();}catch(Throwable ignored){}if(nowSec<=0)nowSec=(int)(System.currentTimeMillis()/1000L);if(sn.contains("online"))return st.expires==0||st.expires>nowSec;if(sn.contains("offline"))return false;return st.expires>nowSec;}
   public static void onUserPut(int a,TLRPC.User u,boolean fromCache){if(shouldKeepAwake(a)&&u!=null)checkOnline(a,u);}
@@ -902,31 +1052,21 @@ public class DrgPluginManager {
         TLRPC.Update u=it.next();
         if(u==null)continue;
         String cn=u.getClass().getSimpleName();
-        if(cn.contains("updateNewMessage")||cn.contains("updateNewChannelMessage")){
+        if(cn.contains("updateNewMessage")||cn.contains("updateNewChannelMessage")||cn.contains("updateEditMessage")||cn.contains("updateEditChannelMessage")){
           try{
             Object mo=u.getClass().getField("message").get(u);
             if(mo instanceof TLRPC.Message){
               TLRPC.Message m=(TLRPC.Message)mo;
-              if(m.peer_id!=null){
-                long cid=m.peer_id.channel_id;
-                long did=cid!=0?-Math.abs(cid):(m.peer_id.chat_id!=0?-Math.abs(m.peer_id.chat_id):m.peer_id.user_id);
-                if(did!=0&&m.id>0&&isAntiDelWatched(a,did)){
-                  long senderUid=m.out?UserConfig.getInstance(a).getClientUserId():((m.from_id!=null&&m.from_id.user_id>0)?m.from_id.user_id:(did>0?did:0L));
-                  String txt=describeMediaText(m);
-                  if(txt!=null&&!txt.isEmpty()){
-                    saveMsgCacheKeyed(a,did,cid,m.id,senderUid,txt);
-                  }
-                }
-                if(!cn.contains("Channel")&&m.peer_id.user_id>0&&m.peer_id.chat_id==0&&cid==0&&!m.out&&isMutedPm(a,m.peer_id.user_id)){
-                  long uid=m.peer_id.user_id;
-                  TLRPC.TL_messages_deleteMessages req=new TLRPC.TL_messages_deleteMessages();
-                  req.revoke=true;req.id.add(m.id);
-                  ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{});
-                  ArrayList<Integer> del=new ArrayList<>();del.add(m.id);
-                  MessagesController.getInstance(a).deleteMessages(del,null,null,uid,0,true,0);
-                  it.remove();
-                  continue;
-                }
+              observeRawMessage(a,m);
+              if(cn.contains("NewMessage")&&!cn.contains("Channel")&&m.peer_id!=null&&m.peer_id.user_id>0&&m.peer_id.chat_id==0&&m.peer_id.channel_id==0&&!m.out&&isMutedPm(a,m.peer_id.user_id)){
+                long uid=m.peer_id.user_id;
+                TLRPC.TL_messages_deleteMessages req=new TLRPC.TL_messages_deleteMessages();
+                req.revoke=true;req.id.add(m.id);
+                ConnectionsManager.getInstance(a).sendRequest(req,(res,err)->{});
+                ArrayList<Integer> del=new ArrayList<>();del.add(m.id);
+                MessagesController.getInstance(a).deleteMessages(del,null,null,uid,0,true,0);
+                it.remove();
+                continue;
               }
             }
           }catch(Throwable ignored){}
@@ -986,6 +1126,7 @@ public class DrgPluginManager {
     lastDialogId=did;
     lastAccount=a;
     startupUiReady=true;
+    ensureAccountObserver(a);
     if(a>=0&&a<100){
       effectiveActiveCache[a]=true;
       pausedAccs[a]=false;
