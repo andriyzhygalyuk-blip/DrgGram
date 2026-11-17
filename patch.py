@@ -164,8 +164,8 @@ for root, _, files in os.walk("."):
         with open(p, "w", encoding="utf-8") as file: file.write(m)
       elif f == "strings.xml":
         with open(p, "r", encoding="utf-8") as file: c = file.read()
-        for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string name="{k}">).*?(</string>)', r'\1DrgGram\2', c)
-        c = re.sub(r'(<string name="Page\d+(?:Title|Message)">)(.*?)(</string>)', lambda m: m.group(1) + m.group(2).replace("Telegram", "DrgGram") + m.group(3), c, flags=re.S)
+        for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string\b[^>]*\bname="{k}"[^>]*>).*?(</string>)', r'\1DrgGram\2', c, flags=re.S)
+        c = re.sub(r'(<string\b[^>]*\bname="Page\d+(?:Title|Message)"[^>]*>)(.*?)(</string>)', lambda m: m.group(1) + m.group(2).replace("Telegram", "DrgGram") + m.group(3), c, flags=re.S)
         with open(p, "w", encoding="utf-8") as file: file.write(c)
       elif f.endswith(".java") and "TMessagesProj" in p and not f.startswith("Drg"):
         with open(p, "r", encoding="utf-8") as file: jc = file.read()
@@ -255,6 +255,8 @@ patch("messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET
 patch("messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
 patch("messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
 patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
+patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*(?:final\s+)?int\s+(\w+)\s*\)\s*\{)", r'\1 if (\2 == R.string.AppName || \2 == R.string.AppNameBeta || \2 == R.string.Page1Title) return "DrgGram";', 0)
+patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*(?:final\s+)?String\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram";', 0)
 patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+getString\s*\(\s*String\s+(\w+)\s*,\s*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null); if (\2 != null && \2.startsWith("Page")) { String v = getInstance().getStringInternal(\2, \3); return v != null ? v.replace("Telegram", "DrgGram") : v; }', 0)
 patch("messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
 patch("messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
@@ -282,7 +284,7 @@ patch("ui/ActionBar/ActionBarMenuItem.java", r"(public\s+void\s+toggleSubMenu\s*
 patch("ui/Cells/ChatMessageCell.java", r"(public\s+void\s+measureTime\s*\(\s*MessageObject\s+(\w+)\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);")
 patch("ui/Cells/ChatMessageCell.java", r"(?m)(^\s*(?:public|protected|private)\s+void\s+setMessageObject\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+)\s+)*MessageObject\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);", 0)
 patch("ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r"\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentAccount, currentMessageObject)) { currentTimeString = org.telegram.messenger.DrgPluginManager.prependSvgTrashSpan(currentTimeString); }", 0)
-patch("ui/DialogsActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("dialogs_onResume"); org.telegram.messenger.DrgPluginManager.onDialogsResume();', 0)
+patch("ui/DialogsActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("dialogs_onResume"); org.telegram.messenger.DrgPluginManager.onDialogsResume(actionBar);', 0)
 patch("ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount, getParentActivity());", 0)
 patch("ui/ChatActivity.java", r">=\s*100\b", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
 patch("ui/ChatActivity.java", r">\s*100\b", "> (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
