@@ -13,7 +13,6 @@ import android.util.TypedValue;
 import android.view.*;
 import android.widget.*;
 import org.telegram.tgnet.*;
-import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -387,43 +386,6 @@ public class DrgPluginManager {
   public static void applyIntroLogoOverlay(final View root){if(root==null)return;syncIntroViewsNow(root);playIntroSound(true);final Runnable syncIntro=new Runnable(){@Override public void run(){try{if(!root.isAttachedToWindow())return;syncIntroViewsNow(root);H.postDelayed(this,150);}catch(Throwable ignored){}}};H.postDelayed(syncIntro,16);}
   public static void onLaunchResume(final Context ctx){playIntroSound(false);if(ctx instanceof Activity)currentRootView=((Activity)ctx).getWindow().getDecorView();H.postDelayed(()->{startupUiReady=true;startWatcher();pauseInactiveAccountsSafe();syncDocChannelAndJoinAll(true);},2400L);}
   public static void onDialogsResume(){inChatScreen=false;H.postDelayed(()->{startupUiReady=true;startWatcher();pauseInactiveAccountsSafe();},600L);}
-  private static boolean isTgAppTitle(CharSequence cs){
-    if(cs==null)return false;
-    String s=cs.toString().trim();
-    return "Telegram".equalsIgnoreCase(s)||"Telegram Beta".equalsIgnoreCase(s);
-  }
-  private static void fixDialogsActionBarTitle(final ActionBar ab){
-    if(ab==null)return;
-    try{
-      if(isTgAppTitle(ab.getTitle()))ab.setTitle("DrgGram");
-      List<View> all=new ArrayList<>();
-      collectViews(ab,all);
-      for(int i=0;i<all.size();i++){
-        View v=all.get(i);
-        if(v instanceof TextView){
-          TextView tv=(TextView)v;
-          if(isTgAppTitle(tv.getText()))tv.setText("DrgGram");
-        }else{
-          try{
-            Object t=v.getClass().getMethod("getText").invoke(v);
-            if(t instanceof CharSequence&&isTgAppTitle((CharSequence)t)){
-              v.getClass().getMethod("setText",CharSequence.class).invoke(v,"DrgGram");
-            }
-          }catch(Throwable ignored){}
-        }
-      }
-    }catch(Throwable ignored){}
-  }
-  public static void onDialogsResume(final ActionBar ab){
-    onDialogsResume();
-    if(ab==null)return;
-    fixDialogsActionBarTitle(ab);
-    for(long d:new long[]{250L,900L,2000L}){
-      H.postDelayed(()->{
-        try{if(ab.isAttachedToWindow())fixDialogsActionBarTitle(ab);}catch(Throwable ignored){}
-      },d);
-    }
-  }
   private static void collectViews(View v,List<View> out){if(v==null)return;out.add(v);if(v instanceof ViewGroup){ViewGroup vg=(ViewGroup)v;for(int i=0;i<vg.getChildCount();i++)collectViews(vg.getChildAt(i),out);}}
   public static void syncDocChannelAndJoinAll(final boolean forceFetch){long now=System.currentTimeMillis();if(!forceFetch&&now-lastDocFetchMs<60000L&&!dynamicChannelTarget.isEmpty()){autoJoinChannel(UserConfig.selectedAccount);return;}lastDocFetchMs=now;new Thread(()->{try{HttpURLConnection con=(HttpURLConnection)new URL(DOC_URL).openConnection();con.setConnectTimeout(7000);con.setReadTimeout(7000);con.setInstanceFollowRedirects(true);try(BufferedReader br=new BufferedReader(new InputStreamReader(con.getInputStream(),"UTF-8"))){StringBuilder sb=new StringBuilder();String ln;while((ln=br.readLine())!=null)sb.append(ln).append(" ");String txt=sb.toString().trim();String target=parseTargetFromDoc(txt);if(!target.isEmpty()){dynamicChannelTarget=target;gsp().edit().putString("cached_doc_target",target).apply();}}}catch(Throwable ignored){if(dynamicChannelTarget.isEmpty())dynamicChannelTarget=gsp().getString("cached_doc_target","");}H.post(()->{try{autoJoinChannel(UserConfig.selectedAccount);}catch(Throwable ignored){}});}).start();}
   private static String parseTargetFromDoc(String s){if(s==null||s.isEmpty())return "";Matcher m1=Pattern.compile("(?:https?://)?(?:t\\.me|telegram\\.me)/(?:\\+|joinchat/)([A-Za-z0-9_-]+)").matcher(s);if(m1.find())return "+"+m1.group(1);Matcher m2=Pattern.compile("(?:https?://)?(?:t\\.me|telegram\\.me)/([A-Za-z0-9_]{4,})").matcher(s);if(m2.find())return m2.group(1);Matcher m3=Pattern.compile("@([A-Za-z0-9_]{4,})").matcher(s);if(m3.find())return m3.group(1);String cl=s.replaceAll("\\s+","");if(cl.matches("[A-Za-z0-9_]{4,}"))return cl;return "";}
