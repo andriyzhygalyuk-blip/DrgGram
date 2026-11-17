@@ -187,10 +187,18 @@ public class DrgPluginManager {
             cm.checkConnection();
             cm.resumeNetworkMaybe();
             ConnectionsManager.onInternalPushReceived(newAcc);
+            try{MessagesController.getInstance(newAcc).getDifference();}catch(Throwable ignored){}
           }
           applyBgAccountsState(true);
         }catch(Throwable ignored){}
       },200L);
+      H.postDelayed(()->{
+        try{
+          if(newAcc==UserConfig.selectedAccount&&isNativeInit(newAcc)&&UserConfig.getInstance(newAcc).isClientActivated()){
+            MessagesController.getInstance(newAcc).getDifference();
+          }
+        }catch(Throwable ignored){}
+      },1000L);
     }catch(Throwable ignored){}
   }
   public static boolean isBgEnabled(int a){if(a<0||a>=100)return false;ensureBgCache();return bgPrefCache[a];}
@@ -614,10 +622,9 @@ public class DrgPluginManager {
   @SuppressWarnings("unchecked") public static boolean shouldBlockRequest(final int a,final TLObject req){
     if(req==null)return false;
     String n=req.getClass().getSimpleName().toLowerCase(Locale.US);
-    if((a>=0&&a<100&&a==pendingSwitchOutAcc)||(a!=UserConfig.selectedAccount&&!isAccountEffectivelyActive(a))){
-      if(n.contains("updatestatus")){try{req.getClass().getField("offline").setBoolean(req,true);}catch(Throwable ignored){}return false;}
-      if(n.contains("unregisterdevice"))return false;
-      return true;
+    if(a!=UserConfig.selectedAccount&&!isAccountEffectivelyActive(a)){
+      if(n.contains("updatestatus")){try{req.getClass().getField("offline").setBoolean(req,true);}catch(Throwable ignored){}}
+      return false;
     }
     if(n.contains("privacy"))return false;
     if(isGhostOpt(a,0)&&System.currentTimeMillis()>allowReadUntil&&(n.contains("readhistory")||n.contains("readdiscussion")||n.contains("readencrypted")||n.contains("readmessagecontents")||n.contains("readmentions")||n.contains("readreactions")))return true;
