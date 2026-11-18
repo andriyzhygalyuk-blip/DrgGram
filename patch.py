@@ -230,6 +230,33 @@ def patch_apk_mime():
   with open(p, "w", encoding="utf-8") as f: f.write("".join(out))
 patch_apk_mime()
 
+def patch_title_methods(rel, only_dialogs_frag):
+  p = J + rel
+  if not os.path.exists(p): return
+  with open(p, "r", encoding="utf-8") as f: s = f.read()
+  if "DrgTitlePatched" in s: return
+  def repl(m):
+    hdr, params, tail = m.group(1), m.group(2), m.group(3)
+    parts = [x.strip() for x in params.split(",") if x.strip()]
+    if not parts or not all(re.match(r"^(?:(?:final|@[A-Za-z0-9_.]+)\s+)*[A-Za-z0-9_.$]+\s+[A-Za-z_][A-Za-z0-9_]*$", x) for x in parts):
+      return m.group(0)
+    p0 = parts[0].split()
+    if len(p0) < 2 or ("CharSequence" not in p0 and "String" not in p0):
+      return m.group(0)
+    vname = p0[-1]
+    extras = [prm.split()[-1] for prm in parts[1:]]
+    call_args = ", ".join(['"DrgGram"'] + extras)
+    cond = f'{vname} != null && ("Telegram".equalsIgnoreCase({vname}.toString().trim()) || "Telegram Beta".equalsIgnoreCase({vname}.toString().trim()))'
+    if only_dialogs_frag:
+      cond = f'parentFragment instanceof org.telegram.ui.DialogsActivity && {cond}'
+    return f'{hdr}{params}{tail} /*DrgTitlePatched*/ if ({cond}) {{ setTitle({call_args}); return; }}'
+  s2 = re.sub(r"(?m)^([ \t]*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:public|protected)\s+(?:final\s+)?void\s+setTitle\s*\()([^)]*)(\)\s*\{)", repl, s)
+  if s2 != s:
+    with open(p, "w", encoding="utf-8") as f: f.write(s2)
+
+patch_title_methods("ui/ActionBar/ActionBar.java", True)
+patch_title_methods("ui/Stories/DialogStoriesCell.java", False)
+
 patch("ui/IntroActivity.java", r"return\s+fragmentView\s*;", "org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView); return fragmentView;", 0)
 patch("ui/IntroActivity.java", r"headerTextView\.setText\([^)]*\);", 'headerTextView.setText("DrgGram");', 0)
 patch("ui/IntroActivity.java", r"LocaleController\.getString\(messages\[(\w+)\]\)", r'LocaleController.getString(messages[\1]).replace("Telegram", "DrgGram")', 0)
@@ -286,10 +313,9 @@ patch("ui/Cells/ChatMessageCell.java", r"(public\s+void\s+measureTime\s*\(\s*Mes
 patch("ui/Cells/ChatMessageCell.java", r"(?m)(^\s*(?:public|protected|private)\s+void\s+setMessageObject\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+)\s+)*MessageObject\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);", 0)
 patch("ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r"\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentAccount, currentMessageObject)) { currentTimeString = org.telegram.messenger.DrgPluginManager.prependSvgTrashSpan(currentTimeString); }", 0)
 patch("ui/DialogsActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("dialogs_onResume"); org.telegram.messenger.DrgPluginManager.onDialogsResume();', 0)
-patch("ui/DialogsActivity.java", r'(\bsetTitle\s*\(\s*)"Telegram(?: Beta)?"', r'\1"DrgGram"', 0)
-patch("ui/DialogsActivity.java", r'(\bsetText\s*\(\s*)"Telegram(?: Beta)?"', r'\1"DrgGram"', 0)
-patch("ui/Stories/DialogStoriesCell.java", r'(\bsetTitle\s*\(\s*)"Telegram(?: Beta)?"', r'\1"DrgGram"', 0)
-patch("ui/Stories/DialogStoriesCell.java", r'(\bsetText\s*\(\s*)"Telegram(?: Beta)?"', r'\1"DrgGram"', 0)
+for rel_ui in ["ui/DialogsActivity.java", "ui/Stories/DialogStoriesCell.java"]:
+  patch(rel_ui, r"(?:LocaleController\.)?getString\s*\(\s*(?:\"AppName(?:Beta)?\"\s*,\s*)?R\.string\.AppName(?:Beta)?\s*\)", '"DrgGram"', 0)
+  patch(rel_ui, r"(\breturn\s+|[=?:,(]\s*)\"Telegram(?: Beta)?\"", r'\1"DrgGram"', 0)
 patch("ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount, getParentActivity());", 0)
 patch("ui/ChatActivity.java", r">=\s*100\b", ">= (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
 patch("ui/ChatActivity.java", r">\s*100\b", "> (org.telegram.messenger.DrgPluginManager.isUnlimitedSelect(currentAccount) ? 100000 : 100)", 0)
