@@ -130,6 +130,7 @@ for root, _, files in os.walk("."):
       elif f == "build.gradle":
         with open(p, "r", encoding="utf-8") as file: c = file.read()
         c = c.replace('applicationIdSuffix ".web"', 'applicationIdSuffix ".drggram"').replace("applicationIdSuffix '.web'", "applicationIdSuffix '.drggram'")
+        c = re.sub(r'(resValue\s+["\']string["\']\s*,\s*["\']AppName(?:Beta)?["\']\s*,\s*)["\'][^"\']*["\']', r'\1"DrgGram"', c)
         if os.environ.get("FAST_BUILD") == "1" and "TMessagesProj" in p: c = re.sub(r"path\s+['\"]jni/CMakeLists\.txt['\"]", "// prebuilt", c)
         with open(p, "w", encoding="utf-8") as file: file.write(c)
       elif f == "google-services.json":
@@ -231,13 +232,41 @@ def patch_apk_mime():
   with open(p, "w", encoding="utf-8") as f: f.write("".join(out))
 patch_apk_mime()
 
-def patch_title_methods(rel, only_dialogs_frag):
+def patch_actionbar_helpers():
+  p = J + "ui/ActionBar/ActionBar.java"
+  if not os.path.exists(p): return
+  with open(p, "r", encoding="utf-8") as f: s = f.read()
+  if "drgFixTitle(" in s: return
+  helper = '''
+  public boolean drgIsMainTitleBar() {
+    return !(parentFragment instanceof org.telegram.ui.ChatActivity) && !(parentFragment instanceof org.telegram.ui.ProfileActivity);
+  }
+  public static CharSequence drgFixTitle(CharSequence v) {
+    if (v == null) return null;
+    String s = v.toString();
+    String t = s.trim();
+    if ("Telegram".equalsIgnoreCase(t) || "Telegram Beta".equalsIgnoreCase(t) || "\\u0422\\u0435\\u043b\\u0435\\u0433\\u0440\\u0430\\u043c".equalsIgnoreCase(t)) return "DrgGram";
+    if (v instanceof android.text.Spanned && s.startsWith("Telegram") && (s.length() == 8 || !Character.isLetter(s.charAt(8))) && !s.toLowerCase(java.util.Locale.US).contains("premium")) {
+      android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(v);
+      sb.replace(0, s.startsWith("Telegram Beta") ? 13 : 8, "DrgGram");
+      return sb;
+    }
+    return v;
+  }
+'''
+  lb = s.rfind("}")
+  if lb > 0:
+    with open(p, "w", encoding="utf-8") as f: f.write(s[:lb] + helper + s[lb:])
+
+patch_actionbar_helpers()
+
+def patch_title_methods(rel, is_actionbar):
   p = J + rel
   if not os.path.exists(p): return
   with open(p, "r", encoding="utf-8") as f: s = f.read()
   if "DrgTitlePatched" in s: return
   def repl(m):
-    hdr, params, tail = m.group(1), m.group(2), m.group(3)
+    hdr, mname, params, tail = m.group(1), m.group(2), m.group(3), m.group(4)
     parts = [x.strip() for x in params.split(",") if x.strip()]
     if not parts or not all(re.match(r"^(?:(?:final|@[A-Za-z0-9_.]+)\s+)*[A-Za-z0-9_.$]+\s+[A-Za-z_][A-Za-z0-9_]*$", x) for x in parts):
       return m.group(0)
@@ -246,19 +275,74 @@ def patch_title_methods(rel, only_dialogs_frag):
       return m.group(0)
     vname = p0[-1]
     extras = [prm.split()[-1] for prm in parts[1:]]
-    call_str = ", ".join(['"DrgGram"'] + extras)
-    call_sb = ", ".join(['_drgSb'] + extras)
-    scope = '(parentFragment instanceof org.telegram.ui.DialogsActivity || (parentFragment != null && parentFragment.getClass().getSimpleName().contains("MainTabs"))) && ' if only_dialogs_frag else ''
-    span_branch = ''
-    if "CharSequence" in p0:
-      span_branch = f' else if ({vname} instanceof android.text.Spanned && _drgS.startsWith("Telegram") && (_drgS.length() == 8 || !Character.isLetter(_drgS.charAt(8))) && !_drgS.toLowerCase(java.util.Locale.US).contains("premium")) {{ android.text.SpannableStringBuilder _drgSb = new android.text.SpannableStringBuilder({vname}); _drgSb.replace(0, _drgS.startsWith("Telegram Beta") ? 13 : 8, "DrgGram"); setTitle({call_sb}); return; }}'
-    return f'{hdr}{params}{tail} /*DrgTitlePatched*/ if ({scope}{vname} != null) {{ String _drgS = {vname}.toString(); String _drgT = _drgS.trim(); if ("Telegram".equalsIgnoreCase(_drgT) || "Telegram Beta".equalsIgnoreCase(_drgT) || "\\u0422\\u0435\\u043b\\u0435\\u0433\\u0440\\u0430\\u043c".equalsIgnoreCase(_drgT)) {{ setTitle({call_str}); return; }}{span_branch} }}'
-  s2 = re.sub(r"(?m)^([ \t]*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:public|protected)\s+(?:final\s+)?void\s+setTitle\s*\()([^)]*)(\)\s*\{)", repl, s)
+    arg0 = "_drgF.toString()" if ("String" in p0 and "CharSequence" not in p0) else "_drgF"
+    call_args = ", ".join([arg0] + extras)
+    cond = "drgIsMainTitleBar() && " if is_actionbar else ""
+    return f'{hdr}{mname}({params}{tail} /*DrgTitlePatched*/ if ({cond}{vname} != null) {{ CharSequence _drgF = org.telegram.ui.ActionBar.ActionBar.drgFixTitle({vname}); if (_drgF != {vname}) {{ {mname}({call_args}); return; }} }}'
+  s2 = re.sub(r"(?m)^([ \t]*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:public|protected)\s+(?:final\s+)?void\s+)(setTitle|setTitleAnimated)\s*\(([^)]*)(\)\s*\{)", repl, s)
   if s2 != s:
     with open(p, "w", encoding="utf-8") as f: f.write(s2)
 
 patch_title_methods("ui/ActionBar/ActionBar.java", True)
 patch_title_methods("ui/Stories/DialogStoriesCell.java", False)
+
+patch("ui/ActionBar/SimpleTextView.java", r"(public\s+boolean\s+setText\s*\(\s*CharSequence\s+(\w+)\s*,\s*boolean\s+(\w+)\s*\)\s*\{)", r'\1 if (\2 != null) { android.view.ViewParent _p = getParent(); for (int _k = 0; _k < 3 && _p != null; _k++, _p = _p.getParent()) { String _cn = _p.getClass().getSimpleName(); if (_cn.contains("ChatAvatarContainer")) break; if (_p instanceof org.telegram.ui.ActionBar.ActionBar) { if (((org.telegram.ui.ActionBar.ActionBar) _p).drgIsMainTitleBar()) \2 = org.telegram.ui.ActionBar.ActionBar.drgFixTitle(\2); break; } if (_cn.contains("DialogStoriesCell")) { \2 = org.telegram.ui.ActionBar.ActionBar.drgFixTitle(\2); break; } } }', 1)
+
+def patch_animated_text_view():
+  p = J + "ui/Components/AnimatedTextView.java"
+  if not os.path.exists(p): return
+  with open(p, "r", encoding="utf-8") as f: s = f.read()
+  if "DrgAtvPatched" in s: return
+  skip_ranges = []
+  for dm in re.finditer(r"\bclass\s+AnimatedTextDrawable\b[^{]*\{", s):
+    i, n, depth = dm.end(), len(s), 1
+    in_str, in_chr, in_lc, in_bc, esc = False, False, False, False, False
+    while i < n and depth > 0:
+      ch = s[i]
+      nx = s[i + 1] if i + 1 < n else ""
+      if in_lc:
+        if ch == "\n": in_lc = False
+        i += 1
+      elif in_bc:
+        if ch == "*" and nx == "/": in_bc = False; i += 2
+        else: i += 1
+      elif in_str:
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == '"': in_str = False
+        i += 1
+      elif in_chr:
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == "'": in_chr = False
+        i += 1
+      else:
+        if ch == "/" and nx == "/": in_lc = True; i += 2
+        elif ch == "/" and nx == "*": in_bc = True; i += 2
+        elif ch == '"': in_str = True; i += 1
+        elif ch == "'": in_chr = True; i += 1
+        elif ch == "{": depth += 1; i += 1
+        elif ch == "}": depth -= 1; i += 1
+        else: i += 1
+    skip_ranges.append((dm.start(), i))
+  def repl(m):
+    for a, b in skip_ranges:
+      if a <= m.start() < b: return m.group(0)
+    hdr, params, tail = m.group(1), m.group(2), m.group(3)
+    parts = [x.strip() for x in params.split(",") if x.strip()]
+    if not parts or not all(re.match(r"^(?:(?:final|@[A-Za-z0-9_.]+)\s+)*[A-Za-z0-9_.$]+\s+[A-Za-z_][A-Za-z0-9_]*$", x) for x in parts):
+      return m.group(0)
+    p0 = parts[0].split()
+    if len(p0) < 2 or "CharSequence" not in p0: return m.group(0)
+    vname = p0[-1]
+    extras = [prm.split()[-1] for prm in parts[1:]]
+    call_args = ", ".join(["_drgF"] + extras)
+    return f'{hdr}{params}{tail} /*DrgAtvPatched*/ if ({vname} != null) {{ android.view.ViewParent _p = getParent(); for (int _k = 0; _k < 3 && _p != null; _k++, _p = _p.getParent()) {{ String _cn = _p.getClass().getSimpleName(); if (_cn.contains("ChatAvatarContainer")) break; if ((_p instanceof org.telegram.ui.ActionBar.ActionBar && ((org.telegram.ui.ActionBar.ActionBar) _p).drgIsMainTitleBar()) || _cn.contains("DialogStoriesCell")) {{ CharSequence _drgF = org.telegram.ui.ActionBar.ActionBar.drgFixTitle({vname}); if (_drgF != {vname}) {{ setText({call_args}); return; }} break; }} }} }}'
+  s2 = re.sub(r"(?m)^([ \t]*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:public|protected)\s+(?:final\s+)?void\s+setText\s*\()([^)]*)(\)\s*\{)", repl, s)
+  if s2 != s:
+    with open(p, "w", encoding="utf-8") as f: f.write(s2)
+
+patch_animated_text_view()
 
 def patch_locale_controller():
   p = J + "messenger/LocaleController.java"
