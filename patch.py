@@ -165,6 +165,7 @@ for root, _, files in os.walk("."):
       elif f == "strings.xml":
         with open(p, "r", encoding="utf-8") as file: c = file.read()
         for k in ["AppName", "AppNameBeta", "Page1Title"]: c = re.sub(rf'(<string\b[^>]*\bname="{k}"[^>]*>).*?(</string>)', r'\1DrgGram\2', c, flags=re.S)
+        c = re.sub(r'(<string\b[^>]*>)\s*Telegram(?:\s+Beta)?\s*(</string>)', r'\1DrgGram\2', c)
         c = re.sub(r'(<string\b[^>]*\bname="Page\d+(?:Title|Message)"[^>]*>)(.*?)(</string>)', lambda m: m.group(1) + m.group(2).replace("Telegram", "DrgGram") + m.group(3), c, flags=re.S)
         with open(p, "w", encoding="utf-8") as file: file.write(c)
       elif f.endswith(".java") and "TMessagesProj" in p and not f.startswith("Drg"):
@@ -245,17 +246,142 @@ def patch_title_methods(rel, only_dialogs_frag):
       return m.group(0)
     vname = p0[-1]
     extras = [prm.split()[-1] for prm in parts[1:]]
-    call_args = ", ".join(['"DrgGram"'] + extras)
-    cond = f'{vname} != null && ("Telegram".equalsIgnoreCase({vname}.toString().trim()) || "Telegram Beta".equalsIgnoreCase({vname}.toString().trim()))'
-    if only_dialogs_frag:
-      cond = f'parentFragment instanceof org.telegram.ui.DialogsActivity && {cond}'
-    return f'{hdr}{params}{tail} /*DrgTitlePatched*/ if ({cond}) {{ setTitle({call_args}); return; }}'
+    call_str = ", ".join(['"DrgGram"'] + extras)
+    call_sb = ", ".join(['_drgSb'] + extras)
+    scope = '(parentFragment instanceof org.telegram.ui.DialogsActivity || (parentFragment != null && parentFragment.getClass().getSimpleName().contains("MainTabs"))) && ' if only_dialogs_frag else ''
+    span_branch = ''
+    if "CharSequence" in p0:
+      span_branch = f' else if ({vname} instanceof android.text.Spanned && _drgS.startsWith("Telegram") && (_drgS.length() == 8 || !Character.isLetter(_drgS.charAt(8))) && !_drgS.toLowerCase(java.util.Locale.US).contains("premium")) {{ android.text.SpannableStringBuilder _drgSb = new android.text.SpannableStringBuilder({vname}); _drgSb.replace(0, _drgS.startsWith("Telegram Beta") ? 13 : 8, "DrgGram"); setTitle({call_sb}); return; }}'
+    return f'{hdr}{params}{tail} /*DrgTitlePatched*/ if ({scope}{vname} != null) {{ String _drgS = {vname}.toString(); String _drgT = _drgS.trim(); if ("Telegram".equalsIgnoreCase(_drgT) || "Telegram Beta".equalsIgnoreCase(_drgT) || "\\u0422\\u0435\\u043b\\u0435\\u0433\\u0440\\u0430\\u043c".equalsIgnoreCase(_drgT)) {{ setTitle({call_str}); return; }}{span_branch} }}'
   s2 = re.sub(r"(?m)^([ \t]*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:public|protected)\s+(?:final\s+)?void\s+setTitle\s*\()([^)]*)(\)\s*\{)", repl, s)
   if s2 != s:
     with open(p, "w", encoding="utf-8") as f: f.write(s2)
 
 patch_title_methods("ui/ActionBar/ActionBar.java", True)
 patch_title_methods("ui/Stories/DialogStoriesCell.java", False)
+
+def patch_locale_controller():
+  p = J + "messenger/LocaleController.java"
+  if not os.path.exists(p): return
+  with open(p, "r", encoding="utf-8") as f: s = f.read()
+  if "drgFixAppTitle" in s: return
+  def wrap_returns(body):
+    out, i, n = [], 0, len(body)
+    in_str, in_chr, in_lc, in_bc, esc = False, False, False, False, False
+    while i < n:
+      ch = body[i]
+      nx = body[i + 1] if i + 1 < n else ""
+      if in_lc:
+        out.append(ch)
+        if ch == "\n": in_lc = False
+        i += 1
+        continue
+      if in_bc:
+        out.append(ch)
+        if ch == "*" and nx == "/": out.append("/"); in_bc = False; i += 2
+        else: i += 1
+        continue
+      if in_str:
+        out.append(ch)
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == '"': in_str = False
+        i += 1
+        continue
+      if in_chr:
+        out.append(ch)
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == "'": in_chr = False
+        i += 1
+        continue
+      if ch == "/" and nx == "/": out.append("//"); in_lc = True; i += 2; continue
+      if ch == "/" and nx == "*": out.append("/*"); in_bc = True; i += 2; continue
+      if ch == '"': out.append(ch); in_str = True; i += 1; continue
+      if ch == "'": out.append(ch); in_chr = True; i += 1; continue
+      if body.startswith("return", i) and (i == 0 or not (body[i - 1].isalnum() or body[i - 1] == "_")) and (i + 6 < n and body[i + 6].isspace()):
+        j = i + 6
+        while j < n and body[j].isspace(): j += 1
+        k, p_dep, s2, c2, e2, semi = j, 0, False, False, False, -1
+        while k < n:
+          ck = body[k]
+          if s2:
+            if e2: e2 = False
+            elif ck == "\\": e2 = True
+            elif ck == '"': s2 = False
+          elif c2:
+            if e2: e2 = False
+            elif ck == "\\": e2 = True
+            elif ck == "'": c2 = False
+          else:
+            if ck == '"': s2 = True
+            elif ck == "'": c2 = True
+            elif ck in "([{": p_dep += 1
+            elif ck in ")]}": p_dep -= 1
+            elif ck == ";" and p_dep == 0: semi = k; break
+          k += 1
+        if semi > j:
+          expr = body[j:semi].strip()
+          if expr and expr != "null" and "drgFixAppTitle" not in expr:
+            out.append(f"return drgFixAppTitle({expr});")
+            i = semi + 1
+            continue
+      out.append(ch)
+      i += 1
+    return "".join(out)
+
+  pat = re.compile(r"(?m)^([ \t]*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:(?:public|private|protected)\s+)?(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?String\s+(?:getString|getStringInternal)\s*\([^)]*\)\s*\{)")
+  res, pos = [], 0
+  while True:
+    m = pat.search(s, pos)
+    if not m:
+      res.append(s[pos:])
+      break
+    res.append(s[pos:m.end()])
+    i, n, depth = m.end(), len(s), 1
+    in_str, in_chr, in_lc, in_bc, esc = False, False, False, False, False
+    while i < n and depth > 0:
+      ch = s[i]
+      nx = s[i + 1] if i + 1 < n else ""
+      if in_lc:
+        if ch == "\n": in_lc = False
+        i += 1
+      elif in_bc:
+        if ch == "*" and nx == "/": in_bc = False; i += 2
+        else: i += 1
+      elif in_str:
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == '"': in_str = False
+        i += 1
+      elif in_chr:
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == "'": in_chr = False
+        i += 1
+      else:
+        if ch == "/" and nx == "/": in_lc = True; i += 2
+        elif ch == "/" and nx == "*": in_bc = True; i += 2
+        elif ch == '"': in_str = True; i += 1
+        elif ch == "'": in_chr = True; i += 1
+        elif ch == "{": depth += 1; i += 1
+        elif ch == "}":
+          depth -= 1
+          if depth == 0: break
+          i += 1
+        else: i += 1
+    res.append(wrap_returns(s[m.end():i]))
+    if i < n:
+      res.append("}")
+      pos = i + 1
+    else:
+      pos = i
+  s2 = "".join(res)
+  helper = '\n  private static String drgFixAppTitle(String s) { if (s != null) { String t = s.trim(); if ("Telegram".equalsIgnoreCase(t) || "Telegram Beta".equalsIgnoreCase(t) || "\\u0422\\u0435\\u043b\\u0435\\u0433\\u0440\\u0430\\u043c".equalsIgnoreCase(t)) return "DrgGram"; } return s; }\n'
+  last_brace = s2.rfind("}")
+  if last_brace > 0:
+    s2 = s2[:last_brace] + helper + s2[last_brace:]
+    with open(p, "w", encoding="utf-8") as f: f.write(s2)
 
 patch("ui/IntroActivity.java", r"return\s+fragmentView\s*;", "org.telegram.messenger.DrgPluginManager.applyIntroLogoOverlay(fragmentView); return fragmentView;", 0)
 patch("ui/IntroActivity.java", r"headerTextView\.setText\([^)]*\);", 'headerTextView.setText("DrgGram");', 0)
@@ -282,10 +408,8 @@ patch("messenger/BuildVars.java", r'SAFETYNET_KEY\s*=\s*"[^"]*"\s*;', 'SAFETYNET
 patch("messenger/BuildVars.java", r'SUPPORTS_PASSKEYS\s*=\s*true\s*;', 'SUPPORTS_PASSKEYS = false;')
 patch("messenger/BuildVars.java", r'SUPPORTS_FPNV\s*=\s*true\s*;', 'SUPPORTS_FPNV = false;')
 patch("messenger/LocaleController.java", r"(public\s+static\s+String\s+formatUserStatus\s*\(\s*(?:final\s+)?int\s+(\w+)\s*,\s*(?:final\s+)?TLRPC\.User\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.checkOnline(\2, \3);", 0)
-patch("messenger/LocaleController.java", r"((?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*public\s+static\s+(?:final\s+)?String\s+getString\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*int\s+(\w+)\s*\)\s*\{)", r'\1 if (\2 == R.string.AppName || \2 == R.string.AppNameBeta || \2 == R.string.Page1Title) return "DrgGram";', 0)
-patch("messenger/LocaleController.java", r"((?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*public\s+static\s+(?:final\s+)?String\s+getString\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*String\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2)) return "DrgGram";', 0)
-patch("messenger/LocaleController.java", r"((?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*public\s+static\s+(?:final\s+)?String\s+getString\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*String\s+(\w+)\s*,\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2) || \3 == R.string.AppName || \3 == R.string.AppNameBeta || \3 == R.string.Page1Title) return "DrgGram"; if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null); if (\2 != null && \2.startsWith("Page")) { String v = getInstance().getStringInternal(\2, \3); return v != null ? v.replace("Telegram", "DrgGram") : v; }', 0)
-patch("messenger/LocaleController.java", r"(?m)^(\s*(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*(?:(?:public|private|protected)\s+)?(?:final\s+)?String\s+getStringInternal\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*String\s+(\w+)\s*,\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*int\s+(\w+)[^)]*\)\s*\{)", r'\1 if ("Page1Title".equals(\2) || "AppName".equals(\2) || "AppNameBeta".equals(\2) || \3 == R.string.AppName || \3 == R.string.AppNameBeta || \3 == R.string.Page1Title) return "DrgGram";', 0)
+patch("messenger/LocaleController.java", r"((?:@[A-Za-z0-9_.]+(?:\([^)]*\))?\s+)*public\s+static\s+(?:final\s+)?String\s+getString\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*String\s+(\w+)\s*,\s*(?:(?:final|@[A-Za-z0-9_.]+(?:\([^)]*\))?)\s+)*int\s+(\w+)\s*\)\s*\{)", r'\1 if ("AddAccount".equals(\2)) return org.telegram.messenger.DrgPluginManager.formatAddAccountLabel(null); if (\2 != null && \2.startsWith("Page")) { String v = getInstance().getStringInternal(\2, \3); return v != null ? v.replace("Telegram", "DrgGram") : v; }', 0)
+patch_locale_controller()
 patch("messenger/UserConfig.java", r"MAX_ACCOUNT_DEFAULT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_DEFAULT_COUNT = 100;")
 patch("messenger/UserConfig.java", r"MAX_ACCOUNT_COUNT\s*=\s*\d+\s*;", "MAX_ACCOUNT_COUNT = 100;")
 patch("messenger/UserConfig.java", r"(public\s+static\s+int\s+getMaxAccountCount\s*\(\s*\)\s*\{)", r"\1 if (true) return 100;")
@@ -313,7 +437,7 @@ patch("ui/Cells/ChatMessageCell.java", r"(public\s+void\s+measureTime\s*\(\s*Mes
 patch("ui/Cells/ChatMessageCell.java", r"(?m)(^\s*(?:public|protected|private)\s+void\s+setMessageObject\s*\(\s*(?:(?:final|@[A-Za-z0-9_.]+)\s+)*MessageObject\s+(\w+)[^)]*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onMessageObserved(currentAccount, \2);", 0)
 patch("ui/Cells/ChatMessageCell.java", r"(currentTimeString\s*=\s*[^;]+;)", r"\1 if (currentMessageObject != null && org.telegram.messenger.DrgPluginManager.isMessageDeleted(currentAccount, currentMessageObject)) { currentTimeString = org.telegram.messenger.DrgPluginManager.prependSvgTrashSpan(currentTimeString); }", 0)
 patch("ui/DialogsActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r'\1 org.telegram.messenger.DrgCrash.stage("dialogs_onResume"); org.telegram.messenger.DrgPluginManager.onDialogsResume();', 0)
-for rel_ui in ["ui/DialogsActivity.java", "ui/Stories/DialogStoriesCell.java"]:
+for rel_ui in ["ui/DialogsActivity.java", "ui/Stories/DialogStoriesCell.java", "ui/MainTabsActivity.java"]:
   patch(rel_ui, r"(?:LocaleController\.)?getString\s*\(\s*(?:\"AppName(?:Beta)?\"\s*,\s*)?R\.string\.AppName(?:Beta)?\s*\)", '"DrgGram"', 0)
   patch(rel_ui, r"(\breturn\s+|[=?:,(]\s*)\"Telegram(?: Beta)?\"", r'\1"DrgGram"', 0)
 patch("ui/ChatActivity.java", r"(public\s+void\s+onResume\s*\(\s*\)\s*\{)", r"\1 org.telegram.messenger.DrgPluginManager.onChatResume(getDialogId(), currentAccount, getParentActivity());", 0)
